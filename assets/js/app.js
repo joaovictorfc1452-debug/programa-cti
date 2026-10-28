@@ -1382,35 +1382,93 @@ function build3d() {
     V3.doorObjs[d.id] = { piv, abre };
     g.add(piv);
   }
-  // dispositivos
-  const branco = cssVar('--sheet');
+  // dispositivos: modelos parecidos com os reais (placa 4×2, tecla, tomada NBR 14136, chuveiro, split, quadro),
+  // com a cor do circuito no contorno da placa
+  const BR = '#F3F3F0', BR2 = '#E2E3DF', ESC = '#2A2E33';
   for (const d of P.dev) {
     if (d.k === 'porta') continue;
     const rd = R.dev[d.id]; if (!rd) continue;
     const sel = S.sel && S.sel.t === 'dev' && S.sel.id === d.id;
     const cc = rd.circ && S.layers.cores ? corCirc(rd.circ) : '#9AA4AA';
     const dim = S.hiCirc && rd.circ !== S.hiCirc && d.k !== 'qdc';
-    const n = rd.nrm || [0, 0];
-    const off = 0.07;
-    let m = null;
-    const opts = sel ? { emissive: new T.Color(cssVar('--accent')), emissiveIntensity: 0.9 } : {};
-    if (dim) Object.assign(opts, { transparent: true, opacity: 0.25 });
+    const ex = Object.assign({}, sel ? { emissive: new T.Color(cssVar('--accent')), emissiveIntensity: 0.55 } : {}, dim ? { transparent: true, opacity: 0.25 } : {});
+    const M = (c, o) => mat(c, Object.assign({}, o || {}, ex));
+    const grp = new T.Group();
+    const box = (w, h, dz, c, x, y, z, o) => { const m = new T.Mesh(new T.BoxGeometry(w, h, dz), M(c, o)); m.position.set(x || 0, y || 0, z || 0); grp.add(m); return m; };
+    const cylZ = (r, len, c, x, y, z, o) => { const m = new T.Mesh(new T.CylinderGeometry(r, r, len, 24), M(c, o)); m.rotation.x = Math.PI / 2; m.position.set(x || 0, y || 0, z || 0); grp.add(m); return m; };
+    const cylY = (r, len, c, x, y, z, o) => { const m = new T.Mesh(new T.CylinderGeometry(r, r, len, 28), M(c, o)); m.position.set(x || 0, y || 0, z || 0); grp.add(m); return m; };
+    const placa = () => { box(0.082, 0.13, 0.006, cc, 0, 0, 0.003); box(0.074, 0.12, 0.008, BR, 0, 0, 0.008, { roughness: 0.4 }); };
+    const tomada = (gr) => {
+      placa();
+      cylZ(0.022, 0.008, BR2, 0, 0, 0.016, { roughness: 0.5 });
+      const rf = gr ? 0.0045 : 0.0036;
+      cylZ(rf, 0.004, ESC, -0.0095, 0.004, 0.0195); cylZ(rf, 0.004, ESC, 0.0095, 0.004, 0.0195); cylZ(rf, 0.004, ESC, 0, -0.0095, 0.0195);
+    };
+    const cega = () => { placa(); cylZ(0.007, 0.004, ESC, 0, 0, 0.0135); };
+    const wall = d.k !== 'luz' && d.k !== 'med';
     if (d.k === 'luz') {
-      m = new T.Mesh(new T.CylinderGeometry(0.15, 0.15, 0.04, 20), mat('#FFE9A8', Object.assign({ emissive: new T.Color(sel ? cssVar('--accent') : '#FFD970'), emissiveIntensity: 0.7 }, dim ? { transparent: true, opacity: 0.25 } : {})));
-      m.position.set(d.x, rd.pd - 0.03, d.y);
+      const y = rd.pd;
+      cylY(0.13, 0.006, cc, 0, y - 0.004, 0);
+      cylY(0.12, 0.022, BR, 0, y - 0.016, 0, { roughness: 0.4 });
+      cylY(0.1, 0.012, '#FFE9A8', 0, y - 0.032, 0, { emissive: new T.Color(sel ? cssVar('--accent') : '#FFD970'), emissiveIntensity: 0.75 });
     } else if (d.k === 'arandela') {
-      m = new T.Mesh(new T.SphereGeometry(0.11, 14, 8), mat('#FFE9A8', Object.assign({ emissive: new T.Color('#FFD970'), emissiveIntensity: 0.6 }, opts)));
-      m.position.set(d.x + n[0] * off, rd.h, d.y + n[1] * off);
-    } else {
-      const dims = { int1: [0.08, 0.12, 0.03], int2: [0.08, 0.12, 0.03], int3: [0.08, 0.12, 0.03], tug: [0.1, 0.1, 0.03], tue: [0.3, 0.22, 0.12], qdc: [0.45, 0.6, 0.1], med: [0.35, 0.5, 0.2] }[d.k] || [0.1, 0.1, 0.05];
-      const color = d.k === 'qdc' || d.k === 'med' ? cssVar('--ink-2') : d.k === 'tue' ? cc : d.k === 'tug' || d.k.startsWith('int') ? (S.layers.cores && rd.circ ? cc : branco) : branco;
-      const across = n[0] !== 0;
-      m = new T.Mesh(across ? new T.BoxGeometry(dims[2], dims[1], dims[0]) : new T.BoxGeometry(dims[0], dims[1], dims[2]), mat(color, opts));
-      m.position.set(d.x + n[0] * (off + dims[2] / 2 - 0.02), d.k === 'med' ? 1.5 : rd.h, d.y + n[1] * (off + dims[2] / 2 - 0.02));
-      if (d.k === 'med') { const post = new T.Mesh(new T.BoxGeometry(0.16, 2.2, 0.16), mat('#A7ADB0')); post.position.set(d.x, 1.1, d.y); g.add(post); }
+      cylZ(0.06, 0.012, cc, 0, 0, 0.006); cylZ(0.055, 0.02, BR, 0, 0, 0.018);
+      const dome = new T.Mesh(new T.SphereGeometry(0.07, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), M('#FFE9A8', { emissive: new T.Color('#FFD970'), emissiveIntensity: 0.6 }));
+      dome.rotation.x = Math.PI / 2; dome.position.set(0, 0, 0.028); grp.add(dome);
+    } else if (d.k.startsWith('int')) {
+      placa();
+      const larg = d.k === 'int3' ? 0.044 : 0.028;
+      box(larg, 0.054, 0.012, BR2, 0, 0, 0.018, { roughness: 0.35 });
+      box(larg * 0.6, 0.004, 0.002, ESC, 0, 0.018, 0.0245);
+      if (d.k !== 'int1') box(0.006, 0.006, 0.002, ESC, 0, -0.018, 0.0245);
+      if (d.k === 'int3') box(0.006, 0.006, 0.002, ESC, 0.012, -0.018, 0.0245);
+    } else if (d.k === 'tug') {
+      const c = rd.circ ? circById(rd.circ) : null;
+      tomada(c && c.disj > 10);
+    } else if (d.k === 'tue') {
+      const pr = E.TUE[d.tipo] || E.TUE.outro;
+      if (d.tipo === 'chuveiro') {
+        cega();
+        cylZ(0.012, 0.34, '#C9CED2', 0, 0.02, 0.17, { metalness: 0.6, roughness: 0.3 });
+        cylY(0.105, 0.012, cc, 0, -0.005, 0.38);
+        cylY(0.1, 0.05, BR, 0, -0.03, 0.38, { roughness: 0.4 });
+        cylY(0.085, 0.004, '#B8BDC2', 0, -0.057, 0.38);
+      } else if (d.tipo === 'ar') {
+        cega();
+        box(0.82, 0.28, 0.2, BR, 0, 0.24, 0.1, { roughness: 0.4 });
+        box(0.82, 0.012, 0.004, cc, 0, 0.37, 0.202);
+        box(0.7, 0.03, 0.01, '#9AA0A6', 0, 0.13, 0.2);
+      } else if (d.tipo === 'aquecedor' || d.tipo === 'boiler') {
+        cega();
+        const h = d.tipo === 'boiler' ? 0.6 : 0.36;
+        box(0.32, h, 0.14, BR, 0, h / 2 + 0.1, 0.07, { roughness: 0.4 });
+        box(0.32, 0.012, 0.004, cc, 0, h + 0.09, 0.142);
+      } else if (pr.plug) tomada(true);
+      else cega();
+    } else if (d.k === 'qdc') {
+      box(0.38, 0.48, 0.02, '#C9CED2', 0, 0, 0.01, { metalness: 0.4, roughness: 0.4 });
+      box(0.34, 0.44, 0.006, '#B3B9BE', 0, 0, 0.023, { metalness: 0.4, roughness: 0.4 });
+      box(0.3, 0.1, 0.004, ESC, 0, 0.09, 0.027);
+      box(0.3, 0.1, 0.004, ESC, 0, -0.06, 0.027);
+      const cs = R.circ, porLinha = 14;
+      cs.forEach((c, i) => {
+        const lin = Math.floor(i / porLinha), col = i % porLinha;
+        box(0.017, 0.05, 0.012, S.layers.cores ? corCirc(c.id) : '#E8E8E8', -0.13 + col * 0.02, (lin === 0 ? 0.09 : -0.06), 0.034);
+      });
+      box(0.05, 0.05, 0.004, '#F2B705', 0.13, 0.19, 0.028);
+    } else if (d.k === 'med') {
+      box(0.16, 2.2, 0.16, '#A7ADB0', 0, 1.1, 0);
+      box(0.32, 0.46, 0.18, '#C9CED2', 0, 1.5, 0.17, { metalness: 0.4, roughness: 0.4 });
+      box(0.16, 0.14, 0.01, '#3C4650', 0, 1.56, 0.262, { roughness: 0.2 });
     }
-    m.userData.sel = { t: 'dev', id: d.id };
-    g.add(m); V3.pick.push(m);
+    const n = rd.nrm;
+    if (wall) {
+      const nn = n || [0, 1], of = n ? 0.06 : 0;
+      grp.position.set(d.x + nn[0] * of, rd.h, d.y + nn[1] * of);
+      grp.rotation.y = Math.atan2(nn[0], nn[1]);
+    } else grp.position.set(d.x, 0, d.y);
+    for (const m of grp.children) { m.userData.sel = { t: 'dev', id: d.id }; V3.pick.push(m); }
+    g.add(grp);
   }
   // eletrodutos: tubos fechados, curvas arredondadas nas junções, descidas alinhadas aos pontos
   if (V3.eletr) {
