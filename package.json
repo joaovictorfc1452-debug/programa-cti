@@ -1,0 +1,14 @@
+{
+  "name": "planta-eletrica-bim",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ambiente BIM para projetos elétricos residenciais (NBR 5410, NBR 5419, NR-10, GED-13)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}
