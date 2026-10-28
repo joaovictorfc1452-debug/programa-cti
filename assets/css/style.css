@@ -103,6 +103,7 @@ main { min-height: 0; position: relative; display: grid; grid-template-rows: min
 #plan .elbl { fill: var(--ink-3); font-family: var(--f-mono); }
 #plan .feeder { stroke: var(--ink-2); stroke-dasharray: 6 4; fill: none; }
 #plan .sym { fill: var(--sheet); stroke: var(--ink); } #plan .symf { fill: var(--ink); }
+#plan .slbl, #plan .slbl-in, #plan .slbl-b, #plan .elbl { pointer-events: none; }
 #plan .slbl { fill: var(--ink-2); font-family: var(--f-mono); } #plan .slbl-in { fill: var(--ink); font-family: var(--f-mono); font-weight: 500; } #plan .slbl-b { fill: var(--ink); font-family: var(--f-display); font-weight: 700; }
 #plan .selring { fill: none; stroke: var(--accent); stroke-dasharray: 4 3; }
 #plan .selbox { fill: none; stroke: var(--accent); } #plan .handle { fill: var(--sheet); stroke: var(--accent); }
