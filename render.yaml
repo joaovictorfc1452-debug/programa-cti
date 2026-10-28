@@ -1,0 +1,11 @@
+# Blueprint do Render (opcional): New > Blueprint > escolha este repositório.
+# Para criar pelo painel, use New > Static Site com Build Command em branco e Publish Directory = .
+services:
+  - type: web
+    name: planta-eletrica-bim
+    runtime: static
+    buildCommand: echo "Site estático, sem etapa de build"
+    staticPublishPath: .
+    envVars:
+      - key: SKIP_INSTALL_DEPS
+        value: "true"

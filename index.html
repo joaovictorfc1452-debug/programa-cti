@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Planta Elétrica BIM</title>
+<meta name="description" content="Ambiente BIM para projetos elétricos residenciais: planta, 3D, quadro de cargas, unifilar, entrada CPFL (GED-13), SPDA (NBR 5419), NR-10 e lista de materiais a partir de um único modelo.">
+<meta name="theme-color" content="#E9EEED" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0C1114" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="brand" title="Planta Elétrica BIM">
+      <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect x="1" y="3" width="24" height="3" fill="currentColor"/><path d="M6 6 L20 6 L13 18 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M6 6 L13 6 L13 18 Z" fill="currentColor"/><circle cx="13" cy="22" r="2" fill="var(--accent)"/></svg>
+      <span>Planta Elétrica BIM</span><small>NBR 5410 · 5419 · NR-10 · GED-13</small>
+    </div>
+    <div class="proj"><input id="projNome" aria-label="Nome do projeto" spellcheck="false"><span id="saveChip" class="chip"><i></i><span>—</span></span></div>
+    <div class="acts">
+      <button class="btn icon ghost" id="btnUndo" title="Desfazer (Ctrl+Z)" aria-label="Desfazer"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M5 3L2 6l3 3M2 6h7a4 4 0 010 8H6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
+      <button class="btn icon ghost" id="btnRedo" title="Refazer (Ctrl+Shift+Z)" aria-label="Refazer"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M11 3l3 3-3 3M14 6H7a4 4 0 000 8h3" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
+      <button class="btn" id="btnProjetos">Projetos</button>
+      <button class="btn" id="btnExport">Exportar</button>
+    </div>
+  </header>
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Vistas do modelo"></nav>
+  <main id="main">
+    <section class="view" id="v-planta" hidden>
+      <div class="cad">
+        <div class="rail" id="rail" role="toolbar" aria-label="Ferramentas"></div>
+        <div class="board" id="board">
+          <svg id="plan" aria-label="Planta baixa elétrica"></svg>
+          <div class="hud tl" id="hudTop"></div>
+          <div class="hud bl"><button class="btn mob-only" id="btnInsp">Propriedades</button></div>
+          <div class="hud br"><div class="seg"><button id="zOut" aria-label="Afastar">−</button><button class="zoomv" id="zVal">100%</button><button id="zIn" aria-label="Aproximar">+</button><button id="zFit">Enquadrar</button></div></div>
+        </div>
+        <aside class="insp closed" id="insp" aria-label="Propriedades"></aside>
+      </div>
+    </section>
+    <section class="view" id="v-vista-3d" hidden>
+      <div class="v3"><div id="c3"></div><aside class="insp" id="insp3" aria-label="Opções da vista 3D"></aside></div>
+    </section>
+    <section class="view sheet" id="v-cargas" hidden></section>
+    <section class="view sheet" id="v-quadro" hidden></section>
+    <section class="view sheet" id="v-unifilar" hidden></section>
+    <section class="view sheet" id="v-entrada" hidden></section>
+    <section class="view sheet" id="v-spda" hidden></section>
+    <section class="view sheet" id="v-nr10" hidden></section>
+    <section class="view sheet" id="v-materiais" hidden></section>
+    <section class="view sheet" id="v-verificacao" hidden></section>
+    <section class="view sheet" id="v-relatorio" hidden></section>
+  </main>
+  <footer class="status" id="status"></footer>
+</div>
+<div class="modal" id="modal" hidden><div class="dialog" id="dialog" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast" hidden></div>
+
+<!-- Biblioteca 3D (somente a aba Vista 3D depende dela) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- Motor de cálculo: NBR 5410, GED-13, NBR 5419, NR-10 -->
+<script src="assets/js/engine.js"></script>
+<!-- Interface: planta, 3D, folhas, relatório -->
+<script src="assets/js/app.js"></script>
+</body>
+</html>
