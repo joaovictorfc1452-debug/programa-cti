@@ -616,23 +616,23 @@ function symDev(d, rd, o) {
 }
 function portaSVG(d) {
   const w = d.w || 0.8;
-  let a = null, n = null;
-  for (const r of S.P.amb) { const nn = E.normalNaBorda(r, d); if (nn) { a = r; n = nn; break; } }
+  let n = null;
+  for (const r of S.P.amb) { const nn = E.normalNaBorda(r, d); if (nn) { n = nn; break; } }
   if (!n) n = [0, 1];
-  let s = '';
+  const f = d.lado === 'd' ? -1 : 1, inv = d.inv ? -1 : 1;
+  let H, Eo, T, gap;
   if (n[0] === 0) {
-    const sg = n[1];
-    const hx = d.x - w / 2, hy = d.y;
-    s += `<line x1="${hx}" y1="${hy}" x2="${d.x + w / 2}" y2="${hy}" class="door-gap" stroke-width="0.17"/>`;
-    s += `<path d="M${hx} ${hy} L${hx} ${hy + sg * w} A${w} ${w} 0 0 ${sg > 0 ? 0 : 1} ${d.x + w / 2} ${hy}" class="door" stroke-width="0.02"/>`;
+    const sg = n[1] * inv;
+    H = [d.x - f * w / 2, d.y]; Eo = [d.x + f * w / 2, d.y]; T = [H[0], d.y + sg * w];
+    gap = `<line x1="${d.x - w / 2}" y1="${d.y}" x2="${d.x + w / 2}" y2="${d.y}" class="door-gap" stroke-width="0.17"/>`;
   } else {
-    const sg = n[0];
-    const hx = d.x, hy = d.y - w / 2;
-    s += `<line x1="${hx}" y1="${hy}" x2="${hx}" y2="${d.y + w / 2}" class="door-gap" stroke-width="0.17"/>`;
-    s += `<path d="M${hx} ${hy} L${hx + sg * w} ${hy} A${w} ${w} 0 0 ${sg > 0 ? 1 : 0} ${hx} ${d.y + w / 2}" class="door" stroke-width="0.02"/>`;
+    const sg = n[0] * inv;
+    H = [d.x, d.y - f * w / 2]; Eo = [d.x, d.y + f * w / 2]; T = [d.x + sg * w, H[1]];
+    gap = `<line x1="${d.x}" y1="${d.y - w / 2}" x2="${d.x}" y2="${d.y + w / 2}" class="door-gap" stroke-width="0.17"/>`;
   }
-  void a;
-  return s;
+  const u = [T[0] - H[0], T[1] - H[1]], v = [Eo[0] - H[0], Eo[1] - H[1]];
+  const sweep = u[0] * v[1] - u[1] * v[0] > 0 ? 1 : 0;
+  return gap + `<path d="M${H[0]} ${H[1]} L${T[0]} ${T[1]} A${w} ${w} 0 0 ${sweep} ${Eo[0]} ${Eo[1]}" class="door" stroke-width="0.02"/>`;
 }
 function planContent(o) {
   o = o || {};
@@ -1053,6 +1053,7 @@ function inspDev(d) {
   if (d.k === 'tug') f += lab('dev.externo', 'Alimenta equipamento externo') + fChk('dev.externo', d.externo);
   if (['luz', 'arandela', 'tug', 'tue'].includes(d.k)) f += lab('dev.grupo', 'Circuito manual') + fIn('dev.grupo', d.grupo || '', 'text', 'placeholder="automático" maxlength="12"');
   if (d.k === 'porta') f += lab('dev.w', 'Largura (m)') + fIn('dev.w', d.w || 0.8, 'number', 'step="0.05" min="0.6"');
+  if (d.k === 'porta') f += `<div class="row full" style="margin-top:2px"><button class="btn" data-act="porta-lado" data-id="${d.id}">↔ Dobradiça do outro lado</button><button class="btn" data-act="porta-sentido" data-id="${d.id}">⇅ Abrir para o outro cômodo</button></div>`;
   if (a && d.k !== 'med') {
     f += lab('rel.x', 'Distância da parede esquerda (m)') + fIn('rel.x', +(d.x - a.x).toFixed(2), 'number', `step="0.05" min="0" max="${a.w}"`);
     f += lab('rel.y', 'Distância da parede de cima (m)') + fIn('rel.y', +(d.y - a.y).toFixed(2), 'number', `step="0.05" min="0" max="${a.h}"`);
@@ -1187,6 +1188,10 @@ function acaoPlanta(act, el) {
     if (res && res.erro) { toast(res.erro); return; }
     const R = S.R;
     toast(`Projeto gerado: ${R.circ.length} circuitos, categoria ${R.entrada.cat.c}, ${R.resumo.nErro} erros.${res.notas.length ? ' ' + res.notas[0] : ''}`);
+    return;
+  }
+  if (act === 'porta-lado' || act === 'porta-sentido') {
+    mutate((P) => { const d = P.dev.find((x) => x.id === id); if (!d) return; if (act === 'porta-lado') { if (d.lado === 'd') delete d.lado; else d.lado = 'd'; } else { if (d.inv) delete d.inv; else d.inv = true; } });
     return;
   }
   if (act === 'insp-fechar') { S.inspOpen = false; renderInsp(); }
@@ -1418,14 +1423,15 @@ function build3d() {
     const horiz = n[0] === 0;
     V3.doorSegs.push(horiz ? { id: d.id, o: 'h', c: d.y, a: d.x - w / 2, b: d.x + w / 2 } : { id: d.id, o: 'v', c: d.x, a: d.y - w / 2, b: d.y + w / 2 });
     if (PW === 'oculta') continue;
+    const fl = d.lado === 'd' ? -1 : 1, sg = (horiz ? n[1] : n[0]) * (d.inv ? -1 : 1);
     const piv = new T.Group();
-    piv.position.set(horiz ? d.x - w / 2 : d.x, 0, horiz ? d.y : d.y - w / 2);
+    piv.position.set(horiz ? d.x - fl * w / 2 : d.x, 0, horiz ? d.y : d.y - fl * w / 2);
     const sel = S.sel && S.sel.t === 'porta' && S.sel.id === d.id;
     const folha = new T.Mesh(horiz ? new T.BoxGeometry(w - 0.02, alto, 0.04) : new T.BoxGeometry(0.04, alto, w - 0.02), mat('#B98B5A', sel ? { emissive: new T.Color(cssVar('--accent')), emissiveIntensity: 0.6 } : {}));
-    folha.position.set(horiz ? w / 2 : 0, alto / 2, horiz ? 0 : w / 2);
+    folha.position.set(horiz ? fl * w / 2 : 0, alto / 2, horiz ? 0 : fl * w / 2);
     folha.userData.sel = { t: 'porta', id: d.id };
     piv.add(folha); V3.pick.push(folha);
-    const abre = horiz ? -Math.PI / 2 * n[1] : Math.PI / 2 * n[0];
+    const abre = horiz ? -Math.PI / 2 * sg * fl : Math.PI / 2 * sg * fl;
     const ang = V3.portaAng[d.id] != null ? V3.portaAng[d.id] : (V3.abertas.has(d.id) ? 1 : 0);
     V3.portaAng[d.id] = ang;
     piv.rotation.y = abre * ang;
@@ -2193,6 +2199,7 @@ function sheetOrcamento() {
     <div class="panel">${resumoOrc(O)}</div>
     <p class="note">Fonte: ${esc(E.PRECOS.fonte)} O padrão de entrada usa a composição SINAPI de entrada de energia (caixa, cabos, disjuntor, materiais e mão de obra) somada a um poste de concreto de 8 m; confira com o padrão exigido pela CPFL para a categoria. Preços mudam: peça para atualizar a pesquisa quando for fechar o orçamento.</p></div>`;
 }
+
 
 /* ---------- verificação ---------- */
 function listaIssues(inter) {
