@@ -1430,21 +1430,21 @@ function build3d() {
     const noLaje = (id) => {
       const d = devById(id), rd = R.dev[id];
       const n = (rd && rd.nrm) || [0, 0], off = d.k === 'luz' ? 0 : 0.05;
-      return new T.Vector3(d.x + n[0] * off, (rd ? rd.pd : P.par.pd) - 0.06, d.y + n[1] * off);
+      return new T.Vector3(d.x + n[0] * off, (rd ? rd.pd : P.par.pd) + 0.03, d.y + n[1] * off); // dentro da laje, acima do topo das paredes
     };
     for (const e of R.edges) {
       const A = devById(e.a), B = devById(e.b); if (!A || !B) continue;
-      if (!e.circs.size && !e.ret.length) continue;
       const hi = S.hiCirc && e.circs.has(S.hiCirc);
       const mm = hi ? hiMat : e.manual ? manual : base, r = hi ? R1 : R0;
       const pa = noLaje(e.a), pb = noLaje(e.b);
       tubo(pa, pb, r, mm); junta(pa, r, mm); junta(pb, r, mm);
     }
     for (const d of P.dev) {
-      const rd = R.dev[d.id]; if (!rd || rd.drop <= 0 || d.k === 'porta' || d.k === 'med' || d.k === 'luz') continue;
+      const rd = R.dev[d.id]; if (!rd || d.k === 'porta' || d.k === 'med') continue;
+      if (!(R.adj[d.id] && R.adj[d.id].length)) continue; // sem eletroduto ligado: não desenha descida solta
       const hi = S.hiCirc && rd.circ === S.hiCirc;
       const mm = hi ? hiMat : base, r = hi ? R1 : R0;
-      const top = noLaje(d.id), bot = new T.Vector3(top.x, rd.h, top.z);
+      const top = noLaje(d.id), bot = new T.Vector3(top.x, d.k === 'luz' ? rd.pd - 0.03 : rd.h, top.z);
       tubo(top, bot, r, mm); junta(top, r, mm);
     }
     for (const { p, r, mm } of juntas.values()) { const sph = new T.Mesh(new T.SphereGeometry(r * 1.15, 10, 8), mm); sph.position.copy(p); g.add(sph); }
