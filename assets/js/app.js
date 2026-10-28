@@ -481,7 +481,17 @@ function snapEixo(v, eixo, excl) {
 function posicionar(kind, w) {
   const K = E.KINDS[kind];
   const sx = +snapV(w.x).toFixed(2), sy = +snapV(w.y).toFixed(2);
-  if (K.mount === 'teto') { const a = E.ambienteEm(S.P, w.x, w.y, 0); return { x: sx, y: sy, amb: a ? a.id : null, nrm: null }; }
+  const tol = 12 / S.z;
+  if (K.mount === 'teto') {
+    const a = E.ambienteEm(S.P, w.x, w.y, 0);
+    let x = sx, y = sy, guia = null;
+    if (a) {
+      const cx = a.x + a.w / 2, cy = a.y + a.h / 2;
+      if (Math.abs(w.x - cx) < tol) { x = +cx.toFixed(3); guia = { amb: a.id, gx: x }; }
+      if (Math.abs(w.y - cy) < tol) { y = +cy.toFixed(3); guia = Object.assign(guia || { amb: a.id }, { gy: y }); }
+    }
+    return { x, y, amb: a ? a.id : null, nrm: null, guia };
+  }
   let a = E.ambienteEm(S.P, w.x, w.y, 0);
   if (!a) {
     let bd = 0.5;
@@ -494,9 +504,13 @@ function posicionar(kind, w) {
   if (!a) return { x: sx, y: sy, amb: null, nrm: null };
   const b = E.bordaProxima(a, w.x, w.y);
   if (kind === 'med' && b.d > 0.4) return { x: sx, y: sy, amb: null, nrm: null };
-  const x = b.nx === 0 ? +Math.min(Math.max(snapV(b.x), a.x), a.x + a.w).toFixed(2) : +b.x.toFixed(3);
-  const y = b.ny === 0 ? +Math.min(Math.max(snapV(b.y), a.y), a.y + a.h).toFixed(2) : +b.y.toFixed(3);
-  return { x, y, amb: a.id, nrm: [b.nx, b.ny] };
+  let x = b.nx === 0 ? +Math.min(Math.max(snapV(b.x), a.x), a.x + a.w).toFixed(2) : +b.x.toFixed(3);
+  let y = b.ny === 0 ? +Math.min(Math.max(snapV(b.y), a.y), a.y + a.h).toFixed(2) : +b.y.toFixed(3);
+  let guia = null;
+  const cx = a.x + a.w / 2, cy = a.y + a.h / 2;
+  if (b.nx === 0 && Math.abs(w.x - cx) < tol) { x = +cx.toFixed(3); guia = { amb: a.id, gx: x }; }
+  if (b.ny === 0 && Math.abs(w.y - cy) < tol) { y = +cy.toFixed(3); guia = { amb: a.id, gy: y }; }
+  return { x, y, amb: a.id, nrm: [b.nx, b.ny], guia };
 }
 function letraDoAmbiente(ambId) {
   if (!ambId || !S.R) return null;
@@ -698,6 +712,16 @@ function renderPlan() {
       s += `<g transform="translate(${p.x} ${p.y}) scale(${ms})" class="${i.sev === 'erro' ? 'mark-e' : 'mark'}" data-ir="${i.alvo.tipo}:${i.alvo.id}"><title>${esc(i.msg)}</title><path d="M0 -0.55 L0.52 0.38 L-0.52 0.38 Z" stroke-width="0.06" stroke-linejoin="round"/><text y="0.24" font-size="0.62" text-anchor="middle" class="markt">!</text></g>`;
     }
   }
+  // linhas-guia de centro
+  if (S.guia && ((S.drag && S.drag.mode === 'move') || S.ghost)) {
+    const a = ambById(S.guia.amb);
+    if (a) {
+      if (S.guia.gx != null) s += `<line x1="${S.guia.gx}" y1="${a.y}" x2="${S.guia.gx}" y2="${a.y + a.h}" class="guide" stroke-width="1.2" vector-effect="non-scaling-stroke"/>`;
+      if (S.guia.gy != null) s += `<line x1="${a.x}" y1="${S.guia.gy}" x2="${a.x + a.w}" y2="${S.guia.gy}" class="guide" stroke-width="1.2" vector-effect="non-scaling-stroke"/>`;
+      const lx = S.guia.gx != null ? S.guia.gx : a.x + a.w / 2, ly = S.guia.gy != null ? S.guia.gy : a.y + a.h / 2;
+      s += `<text x="${lx + 6 / z}" y="${ly - 6 / z}" font-size="${11 / z}" class="dimt">${S.guia.gx != null && S.guia.gy != null ? 'centro do ambiente' : 'eixo central'}</text>`;
+    }
+  }
   // fantasma e prévias
   const dr = S.drag;
   if (dr && dr.mode === 'room' && dr.b) {
@@ -731,7 +755,7 @@ function bindPlan() {
   svg.addEventListener('pointermove', onMove);
   svg.addEventListener('pointerup', onUp);
   svg.addEventListener('pointercancel', onUp);
-  svg.addEventListener('pointerleave', () => { if (!S.drag) { S.ghost = null; renderPlanSoon(); } });
+  svg.addEventListener('pointerleave', () => { if (!S.drag) { S.ghost = null; S.guia = null; renderPlanSoon(); } });
   svg.addEventListener('wheel', (e) => { e.preventDefault(); const r = svg.getBoundingClientRect(); zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), e.clientX - r.left, e.clientY - r.top); }, { passive: false });
   svg.addEventListener('contextmenu', (e) => e.preventDefault());
   svg.addEventListener('dblclick', () => { if (S.sel) { S.inspOpen = true; renderInsp(); } });
@@ -824,7 +848,7 @@ function onMove(e) {
   const cp = $('#cursorPos'); if (cp) cp.textContent = `x ${nf(w.x, 2)} · y ${nf(w.y, 2)} m`;
   const dr = S.drag;
   if (!dr) {
-    if (S.tool !== 'sel' && S.tool !== 'amb' && S.tool !== 'eletr') { S.ghost = posicionar(S.tool, w); renderPlanSoon(); }
+    if (S.tool !== 'sel' && S.tool !== 'amb' && S.tool !== 'eletr') { S.ghost = posicionar(S.tool, w); S.guia = S.ghost.guia || null; renderPlanSoon(); }
     else if (S.tool === 'eletr' && S.eletrA) renderPlanSoon();
     return;
   }
@@ -845,7 +869,7 @@ function onMove(e) {
     dr.moved = true;
     const d = devById(dr.id); if (!d) return;
     const pos = posicionar(d.k, { x: w.x - dr.off.x, y: w.y - dr.off.y });
-    d.x = pos.x; d.y = pos.y;
+    d.x = pos.x; d.y = pos.y; S.guia = pos.guia || null;
     if (d.k !== 'porta' && d.k !== 'med') { if (pos.amb) d.amb = pos.amb; else delete d.amb; }
     recompute(); renderPlanSoon(); return;
   }
@@ -890,6 +914,7 @@ function onMove(e) {
 function onUp(e) {
   ptrs.delete(e.pointerId);
   const dr = S.drag;
+  S.guia = null;
   if (!dr) return;
   if (dr.mode === 'pinch') { if (ptrs.size === 0) S.drag = null; return; }
   S.drag = null;
@@ -978,6 +1003,10 @@ function inspAmb(a) {
     <dt>Uso específico</dt><dd>${ra.nTue} · ${ni(ra.tueW)} W</dd>
   </dl><p class="note" style="margin-top:6px">${esc(E.regraTug(a.tipo))}.${E.tipoAmb(a.tipo).dr ? ' Circuitos deste local recebem DR 30 mA.' : ''}</p>
   <div class="row" style="margin-top:8px"><span class="pill ${okL ? 'ok' : 'crit'}">${okL ? 'Luz ok' : 'Falta ponto de luz'}</span><span class="pill ${okT ? 'ok' : 'crit'}">${okT ? 'Tomadas ok' : 'Faltam ' + (ra.tugMin - ra.nTug) + ' tomadas'}</span></div></div>
+  <div><h3>Posicionar luzes do teto</h3>
+    <div class="row"><button class="btn" data-act="luz-centro" data-id="${a.id}">Luz no centro</button></div>
+    <div class="row" style="margin-top:8px;align-items:center"><input class="mini" id="g-cols" type="number" min="1" max="10" value="${a.w >= a.h ? 2 : 1}" aria-label="Colunas de luzes"><span>×</span><input class="mini" id="g-rows" type="number" min="1" max="10" value="${a.w >= a.h ? 1 : 2}" aria-label="Linhas de luzes"><button class="btn" data-act="luz-grade" data-id="${a.id}">Distribuir em grade</button></div>
+    <p class="note" style="margin-top:6px">Troca as luzes do teto deste ambiente por pontos igualmente espaçados, com a mesma letra de comando. Ctrl+Z desfaz.</p></div>
   <div class="row"><button class="btn pri" data-act="completar" data-id="${a.id}">Completar pontos mínimos</button><button class="btn" data-act="dup-amb" data-id="${a.id}">Duplicar</button><button class="btn danger" data-act="excluir">Excluir</button></div>`;
 }
 function inspDev(d) {
@@ -1002,7 +1031,11 @@ function inspDev(d) {
   if (d.k === 'tug') f += lab('dev.externo', 'Alimenta equipamento externo') + fChk('dev.externo', d.externo);
   if (['luz', 'arandela', 'tug', 'tue'].includes(d.k)) f += lab('dev.grupo', 'Circuito manual') + fIn('dev.grupo', d.grupo || '', 'text', 'placeholder="automático" maxlength="12"');
   if (d.k === 'porta') f += lab('dev.w', 'Largura (m)') + fIn('dev.w', d.w || 0.8, 'number', 'step="0.05" min="0.6"');
-  f += lab('dev.x', 'X (m)') + fIn('dev.x', d.x, 'number', 'step="0.05"') + lab('dev.y', 'Y (m)') + fIn('dev.y', d.y, 'number', 'step="0.05"');
+  if (a && d.k !== 'med') {
+    f += lab('rel.x', 'Distância da parede esquerda (m)') + fIn('rel.x', +(d.x - a.x).toFixed(2), 'number', `step="0.05" min="0" max="${a.w}"`);
+    f += lab('rel.y', 'Distância da parede de cima (m)') + fIn('rel.y', +(d.y - a.y).toFixed(2), 'number', `step="0.05" min="0" max="${a.h}"`);
+  }
+  f += lab('dev.x', 'X na planta (m)') + fIn('dev.x', d.x, 'number', 'step="0.05"') + lab('dev.y', 'Y na planta (m)') + fIn('dev.y', d.y, 'number', 'step="0.05"');
   let calc = '';
   if (c) {
     calc = `<div><h3>Circuito</h3><dl class="kv"><dt>Circuito</dt><dd><span class="cnum"><i style="background:${corCirc(c.id)}"></i>${c.id}</span></dd>
@@ -1019,7 +1052,7 @@ function inspDev(d) {
   }
   return `<div><h2>${esc(K.n)}</h2><div class="ifc">${esc(K.ifc)}${a ? ' · ' + esc(a.nome) : ''}</div></div>
     <div><h3>Propriedades</h3><div class="form">${f}</div></div>${calc}
-    <div class="row"><button class="btn" data-act="dup-dev">Duplicar</button><button class="btn danger" data-act="excluir">Excluir</button></div>`;
+    <div class="row">${a && d.k !== 'med' ? `<button class="btn" data-act="centralizar">${d.k === 'luz' ? 'Centralizar no ambiente' : 'Centralizar na parede'}</button>` : ''}<button class="btn" data-act="dup-dev">Duplicar</button><button class="btn danger" data-act="excluir">Excluir</button></div>`;
 }
 function inspEdge(e) {
   if (!e) return '';
@@ -1095,6 +1128,11 @@ function onInspChange(e) {
       if (key === 'tipo') { d.tipo = v; delete d.w; delete d.v; delete d.fp; delete d.h; }
       else if (v === null || v === '' || v === false) delete d[key];
       else d[key] = typeof v === 'string' && key !== 'k' && key !== 'rotulo' ? v.trim() : v;
+    } else if (scope === 'rel') {
+      const d = P.dev.find((x) => x.id === S.sel.id); if (!d || v == null) return;
+      const a = P.amb.find((x) => x.id === S.R.dev[d.id].amb); if (!a) return;
+      const lim = key === 'x' ? a.w : a.h;
+      d[key] = +((key === 'x' ? a.x : a.y) + Math.min(Math.max(v, 0), lim)).toFixed(3);
     } else if (scope === 'par') P.par[key] = v;
     else if (scope === 'meta') P.meta[key] = v;
   });
@@ -1102,6 +1140,35 @@ function onInspChange(e) {
 function acaoPlanta(act, el) {
   const id = el.dataset.id;
   if (act === 'insp-fechar') { S.inspOpen = false; renderInsp(); }
+  if (act === 'luz-centro' || act === 'luz-grade') {
+    const a = ambById(id); if (!a) return;
+    const lim = (sel) => Math.max(1, Math.min(10, Math.round(+(($(sel) || {}).value) || 1)));
+    const c = act === 'luz-grade' ? lim('#g-cols') : 1, r = act === 'luz-grade' ? lim('#g-rows') : 1;
+    const antes = S.P.dev.filter((d) => d.k === 'luz' && S.R.dev[d.id] && S.R.dev[d.id].amb === a.id);
+    const letra = (antes.find((d) => d.cmd) || {}).cmd || letraDoAmbiente(a.id) || proximaLetra();
+    const grupo = (antes.find((d) => d.grupo) || {}).grupo;
+    const ids = new Set(antes.map((d) => d.id));
+    mutate((P) => {
+      P.dev = P.dev.filter((d) => !ids.has(d.id));
+      P.eletr = P.eletr.filter((e) => !ids.has(e.a) && !ids.has(e.b));
+      for (let j = 0; j < r; j++) for (let i = 0; i < c; i++) {
+        const d = { id: E.uid('d'), k: 'luz', x: +(a.x + a.w * (i + 0.5) / c).toFixed(3), y: +(a.y + a.h * (j + 0.5) / r).toFixed(3), amb: a.id, cmd: letra };
+        if (grupo) d.grupo = grupo;
+        P.dev.push(d);
+      }
+    });
+    toast(c * r === 1 ? 'Ponto de luz no centro do ambiente.' : `${c * r} pontos de luz distribuídos (${c} × ${r}).`);
+  }
+  if (act === 'centralizar') {
+    const d = devById(S.sel.id), rd = S.R.dev[d.id], a = rd && ambById(rd.amb); if (!a) return;
+    const cx = +(a.x + a.w / 2).toFixed(3), cy = +(a.y + a.h / 2).toFixed(3);
+    mutate((P) => {
+      const x = P.dev.find((q) => q.id === d.id);
+      if (d.k === 'luz' || !rd.nrm) { x.x = cx; x.y = cy; }
+      else if (rd.nrm[0] === 0) x.x = cx; else x.y = cy;
+    });
+    toast(d.k === 'luz' ? 'Ponto no centro do ambiente.' : 'Ponto no meio da parede.');
+  }
   if (act === 'excluir') excluirSel();
   if (act === 'completar') mutate((P) => { const n = E.completarPontos(P, id); toast(n ? n + ' pontos inseridos.' : 'O ambiente já atende ao mínimo.'); });
   if (act === 'dup-amb') {
