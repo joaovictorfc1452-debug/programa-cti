@@ -167,7 +167,7 @@ function renderView() {
 function renderAll() {
   $('#projNome').value = S.P.nome;
   $('#btnUndo').disabled = !S.undo.length; $('#btnRedo').disabled = !S.redo.length;
-  if ($('#hudUndo')) { $('#hudUndo').disabled = !S.undo.length; $('#hudRedo').disabled = !S.redo.length; }
+  if ($('#hudUndo')) $('#hudUndo').disabled = !S.undo.length; if ($('#hudRedo')) $('#hudRedo').disabled = !S.redo.length;
   renderTabs(); renderStatus(); renderSaveChip(); renderView();
 }
 function renderStatus() {
@@ -309,7 +309,7 @@ function bindGlobal() {
   window.addEventListener('hashchange', () => { const v = location.hash.slice(1); if (v && v !== S.view) setView(v, false); });
   $('#projNome').addEventListener('change', (e) => { const v = e.target.value.trim() || 'Projeto sem nome'; mutate((P) => { P.nome = v; }); });
   $('#btnUndo').onclick = desfazer; $('#btnRedo').onclick = refazer;
-  $('#hudUndo').onclick = desfazer; $('#hudRedo').onclick = refazer;
+  if ($('#hudUndo')) $('#hudUndo').onclick = desfazer; if ($('#hudRedo')) $('#hudRedo').onclick = refazer;
   $('#btnProjetos').onclick = () => modalProjetos();
   $('#btnExport').onclick = (e) => { e.stopPropagation(); if ($('#menuExp')) fecharMenus(); else menuExportar(e.currentTarget); };
   document.addEventListener('click', (e) => {
