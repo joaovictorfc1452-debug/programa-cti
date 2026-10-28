@@ -621,6 +621,7 @@ function planContent(o) {
   o = o || {};
   const P = S.P, R = S.R;
   const L = o.static ? { eletr: true, rotulos: true, cores: true, alertas: false } : S.layers;
+  const hr = o.static ? 0.22 : Math.min(0.22, Math.max(0.04, 14 / S.z)); // área de toque proporcional ao zoom
   let s = '';
   // ambientes
   for (const a of P.amb) s += `<rect x="${a.x}" y="${a.y}" width="${a.w}" height="${a.h}" class="room ${classeAmb(a.tipo)}" data-sel="amb:${a.id}"/>`;
@@ -648,7 +649,7 @@ function planContent(o) {
   }
   // paredes
   for (const a of P.amb) s += `<rect x="${a.x}" y="${a.y}" width="${a.w}" height="${a.h}" class="wall" stroke-width="0.12" pointer-events="none"/>`;
-  for (const d of P.dev.filter((x) => x.k === 'porta')) s += `<g data-sel="dev:${d.id}">${portaSVG(d)}<circle cx="${d.x}" cy="${d.y}" r="0.2" class="hit"/></g>`;
+  for (const d of P.dev.filter((x) => x.k === 'porta')) s += `<g data-sel="dev:${d.id}">${portaSVG(d)}</g>`;
   // rótulos dos ambientes
   for (const a of P.amb) {
     const ra = R && R.amb[a.id];
@@ -661,9 +662,9 @@ function planContent(o) {
     const rd = R && R.dev[d.id];
     const isSel = !o.static && S.sel && S.sel.t === 'dev' && S.sel.id === d.id;
     const dim = !o.static && S.hiCirc && rd && rd.circ !== S.hiCirc && d.k !== 'qdc';
-    s += `<g data-sel="dev:${d.id}"${dim ? ' opacity="0.28"' : ''}>${symDev(d, rd, { rotulos: L.rotulos, mono: o.mono })}<circle cx="${d.x}" cy="${d.y}" r="0.22" class="hit"/></g>`;
-    if (isSel) s += `<circle cx="${d.x}" cy="${d.y}" r="0.3" class="selring" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
-    if (!o.static && S.eletrA === d.id) s += `<circle cx="${d.x}" cy="${d.y}" r="0.34" class="selring" stroke-width="3" vector-effect="non-scaling-stroke"/>`;
+    s += `<g data-sel="dev:${d.id}"${dim ? ' opacity="0.28"' : ''}>${symDev(d, rd, { rotulos: L.rotulos, mono: o.mono })}</g>`;
+    // seleção indicada só pelo painel de propriedades (sem círculo na planta)
+    if (!o.static && S.eletrA === d.id) s += `<circle cx="${d.x}" cy="${d.y}" r="0.24" class="selring" stroke-width="2" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
   }
   return s;
 }
@@ -790,7 +791,7 @@ function onDown(e) {
   if (mk && S.tool === 'sel') { const [t, id] = mk.dataset.ir.split(':'); S.sel = { t, id }; renderPlan(); renderInsp(); return; }
   const hnd = e.target.closest('[data-h]');
   const tgt = e.target.closest('[data-sel]');
-  const [tt, tid] = tgt ? tgt.dataset.sel.split(':') : [null, null];
+  let [tt, tid] = tgt ? tgt.dataset.sel.split(':') : [null, null];
   const tool = S.tool;
   if (tool === 'sel') {
     if (hnd && S.sel && S.sel.t === 'amb') {
