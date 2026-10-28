@@ -22,8 +22,8 @@
     </div>
     <div class="proj"><input id="projNome" aria-label="Nome do projeto" spellcheck="false"><span id="saveChip" class="chip"><i></i><span>—</span></span></div>
     <div class="acts">
-      <button class="btn icon ghost" id="btnUndo" title="Desfazer (Ctrl+Z)" aria-label="Desfazer"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M5 3L2 6l3 3M2 6h7a4 4 0 010 8H6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
-      <button class="btn icon ghost" id="btnRedo" title="Refazer (Ctrl+Shift+Z)" aria-label="Refazer"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M11 3l3 3-3 3M14 6H7a4 4 0 000 8h3" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
+      <button class="btn icon ghost" id="btnUndo" title="Desfazer (Ctrl+Z)" aria-label="Desfazer"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M5 3L2 6l3 3M2 6h7a4 4 0 010 8H6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span class="wide">Voltar</span></button>
+      <button class="btn icon ghost" id="btnRedo" title="Refazer (Ctrl+Shift+Z)" aria-label="Refazer"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M11 3l3 3-3 3M14 6H7a4 4 0 000 8h3" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span class="wide">Refazer</span></button>
       <button class="btn" id="btnProjetos">Projetos</button>
       <button class="btn" id="btnExport">Exportar</button>
     </div>
@@ -36,7 +36,7 @@
         <div class="board" id="board">
           <svg id="plan" aria-label="Planta baixa elétrica"></svg>
           <div class="hud tl" id="hudTop"></div>
-          <div class="hud bl"><button class="btn mob-only" id="btnInsp">Propriedades</button></div>
+          <div class="hud bl"><div class="seg undo-seg"><button id="hudUndo" title="Desfazer a última ação (Ctrl+Z)">↶ Voltar</button><button id="hudRedo" title="Refazer o que foi desfeito (Ctrl+Shift+Z)">↷ Refazer</button></div><button class="btn mob-only" id="btnInsp">Propriedades</button></div>
           <div class="hud br"><div class="seg"><button id="zOut" aria-label="Afastar">−</button><button class="zoomv" id="zVal">100%</button><button id="zIn" aria-label="Aproximar">+</button><button id="zFit">Enquadrar</button></div></div>
         </div>
         <aside class="insp closed" id="insp" aria-label="Propriedades"></aside>
