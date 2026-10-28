@@ -1155,6 +1155,7 @@ function modalAuto() {
 }
 function acaoPlanta(act, el) {
   const id = el.dataset.id;
+  if ((act === 'auto-abrir' || act === 'auto-rodar') && !(E.projetarAuto && E.AUTO_OPCOES)) { toast('Projeto automático indisponível: o arquivo assets/js/engine.js do site está desatualizado. Envie a versão nova ao GitHub.'); return; }
   if (act === 'auto-abrir') { modalAuto(); return; }
   if (act === 'auto-rodar') {
     const op = { frente: $('#auto-frente').value, substituir: $('#auto-subst').value === '1' };

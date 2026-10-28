@@ -265,6 +265,13 @@
     }
     return true;
   }
+  // posição boa para interruptor: dentro do ambiente, longe dos cantos e sem outro ponto colado
+  function candInt(P, a, c) {
+    if (!E.contem(a, c.x, c.y, 0.001)) return false;
+    const cantos = [[a.x, a.y], [a.x + a.w, a.y], [a.x, a.y + a.h], [a.x + a.w, a.y + a.h]];
+    if (cantos.some(([x, y]) => Math.hypot(c.x - x, c.y - y) < 0.2)) return false;
+    return !P.dev.some((d) => d.k !== 'porta' && d.k !== 'luz' && dist(d, c) < 0.25);
+  }
   E.completarPontos = function (P, ambId) {
     const a = P.amb.find((x) => x.id === ambId);
     if (!a) return 0;
@@ -297,7 +304,7 @@
         const n = E.normalNaBorda(a, p);
         const half = (p.w || 0.8) / 2 + 0.15;
         const cands = n[0] === 0 ? [{ x: p.x + half, y: p.y }, { x: p.x - half, y: p.y }] : [{ x: p.x, y: p.y + half }, { x: p.x, y: p.y - half }];
-        pos = cands.find((c) => E.contem(a, c.x, c.y, 0.001));
+        pos = cands.find((c) => candInt(P, a, c));
         if (pos) break;
       }
       if (!pos) pos = { x: a.x + 0.3, y: a.y + a.h };
@@ -329,6 +336,136 @@
     }
     void pd;
     return added;
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Projeto automático: NBR 5410 (mínimos), GED-13 (entrada) e a prática  */
+  /* de obra do eletricista para pontos de uso específico, quadro e medição */
+  /* ------------------------------------------------------------------ */
+  E.AUTO_OPCOES = {
+    chuveiro: { n: 'Chuveiro elétrico em cada banheiro', def: true },
+    arDorm: { n: 'Ponto de ar-condicionado em cada dormitório', def: true },
+    arSala: { n: 'Ponto de ar-condicionado na sala', def: false },
+    microondas: { n: 'Micro-ondas na cozinha', def: true },
+    geladeira: { n: 'Tomada da geladeira na cozinha (1,10 m)', def: true },
+    lavaRoupa: { n: 'Máquina de lavar na área de serviço', def: true },
+    torneira: { n: 'Torneira elétrica na cozinha', def: false },
+    forno: { n: 'Forno elétrico na cozinha', def: false },
+    externa: { n: 'Tomada externa com DR em varandas e áreas externas', def: true },
+    portao: { n: 'Motor de portão na garagem', def: false },
+    paralelo: { n: 'Interruptor paralelo em salas e corredores com duas portas', def: true }
+  };
+  function pontoParede(P, a, score, extra) {
+    // varre o perímetro do ambiente a cada 10 cm e devolve o ponto válido de maior nota
+    const per = 2 * (a.w + a.h);
+    let best = null, bs = -Infinity;
+    for (let s = 0; s < per; s += 0.1) {
+      const pt = perimPonto(a, s);
+      if (!posValida(P, a, pt, extra)) continue;
+      const v = score(pt);
+      if (v > bs) { bs = v; best = pt; }
+    }
+    return best;
+  }
+  function distPortas(P, a, pt) {
+    const ps = portasDoAmbiente(P, a);
+    return ps.length ? Math.min(...ps.map((p) => dist(p, pt))) : 3;
+  }
+  function distPontos(P, pt) {
+    const ds = P.dev.filter((d) => d.k !== 'porta' && d.k !== 'luz').map((d) => dist(d, pt));
+    return ds.length ? Math.min(...ds) : 5;
+  }
+  const meioParede = (pt) => 1 - Math.abs(pt.off - pt.len / 2) / Math.max(0.01, pt.len / 2);
+  E.projetarAuto = function (P, op) {
+    op = Object.assign({}, ...Object.entries(E.AUTO_OPCOES).map(([k, v]) => ({ [k]: v.def })), { substituir: true, frente: 'baixo' }, op || {});
+    if (!P.amb.length) return { erro: 'Desenhe os ambientes da casa antes de projetar.' };
+    if (op.substituir) { P.dev = P.dev.filter((d) => d.k === 'porta'); P.eletr = []; }
+    const res = { tue: 0, luz: 0, int: 0, tug: 0, notas: [] };
+    const put = (a, k, pt, extra) => { const d = Object.assign({ id: uid('d'), k, x: +pt.x.toFixed(3), y: +pt.y.toFixed(3), amb: a.id }, extra || {}); P.dev.push(d); return d; };
+    const tem = (a, f) => P.dev.some((d) => d.amb === a.id && f(d));
+    // 1. pontos de uso específico (antes das tomadas, para elas desviarem)
+    for (const a of P.amb) {
+      const t = a.tipo;
+      const tue = (tipo, score) => {
+        if (tem(a, (d) => d.k === 'tue' && d.tipo === tipo)) return;
+        const pt = pontoParede(P, a, score); if (!pt) return;
+        put(a, 'tue', pt, { tipo }); res.tue++;
+      };
+      const longePorta = (pt) => Math.min(distPortas(P, a, pt), 2.5) + 2 * meioParede(pt) + 0.4 * Math.min(pt.len, 4); // ar: meio da parede maior, longe da porta
+      const espalhado = (pt) => Math.min(distPontos(P, pt), 2) + 0.3 * distPortas(P, a, pt);
+      if (t === 'banheiro' && op.chuveiro) tue('chuveiro', (pt) => distPortas(P, a, pt) + 0.3 * meioParede(pt));
+      if (t === 'dormitorio' && op.arDorm) tue('ar', longePorta);
+      if (t === 'sala' && op.arSala && a.w * a.h >= 9) tue('ar', longePorta);
+      if (t === 'cozinha') {
+        if (op.microondas) tue('microondas', espalhado);
+        if (op.torneira) tue('torneira', espalhado);
+        if (op.forno) tue('forno', espalhado);
+      }
+      if (t === 'area_servico' && op.lavaRoupa) tue('lavaroupa', espalhado);
+      if (t === 'garagem' && op.portao) tue('portao', (pt) => -distPortas(P, a, pt) * 0.2 + meioParede(pt));
+    }
+    // 2. luzes, interruptores e tomadas mínimas da NBR 5410
+    for (const a of P.amb) E.completarPontos(P, a.id);
+    // 3. ajustes de prática de obra
+    for (const a of P.amb) {
+      const t = E.tipoAmb(a.tipo);
+      // geladeira: tomada dedicada a 1,10 m na cozinha, longe do fogão/portas
+      if (a.tipo === 'cozinha' && op.geladeira) {
+        const pt = pontoParede(P, a, (p) => Math.min(distPontos(P, p), 2) + 0.2 * distPortas(P, a, p));
+        if (pt) { put(a, 'tug', pt, { h: 1.1, va: 600, rotulo: 'Geladeira' }); res.tug++; }
+      }
+      // tomadas externas recebem a marcação que exige DR
+      if (t.externa && op.externa) for (const d of P.dev) if (d.amb === a.id && d.k === 'tug') d.externo = true;
+      // paralelo em salas/corredores com duas ou mais portas
+      const portas = portasDoAmbiente(P, a);
+      if (op.paralelo && portas.length >= 2 && ['circulacao', 'sala'].includes(a.tipo)) {
+        const ints = P.dev.filter((d) => d.amb === a.id && d.k.startsWith('int'));
+        const letra = (P.dev.find((d) => d.amb === a.id && d.k === 'luz') || {}).cmd;
+        if (ints.length === 1 && letra) {
+          ints[0].k = 'int2';
+          const ja = ints[0];
+          const outra = portas.filter((p) => dist(p, ja) > 1).sort((p, q) => dist(q, ja) - dist(p, ja))[0];
+          if (outra) {
+            const n = E.normalNaBorda(a, outra), half = (outra.w || 0.8) / 2 + 0.15;
+            const cands = n && n[0] === 0 ? [{ x: outra.x + half, y: outra.y }, { x: outra.x - half, y: outra.y }] : [{ x: outra.x, y: outra.y + half }, { x: outra.x, y: outra.y - half }];
+            const c = cands.find((p) => candInt(P, a, p));
+            if (c) { put(a, 'int2', c, { cmd: letra }); res.int++; }
+          }
+        }
+      }
+    }
+    // 4. quadro: parede de local seco, de fácil acesso e perto do centro de cargas
+    const cargas = P.dev.filter((d) => d.k !== 'porta');
+    const cg = cargas.length ? { x: cargas.reduce((s, d) => s + d.x, 0) / cargas.length, y: cargas.reduce((s, d) => s + d.y, 0) / cargas.length } : { x: 0, y: 0 };
+    const pesoAmb = { circulacao: 0, sala: 0.8, escritorio: 1.2, garagem: 1.5, outro: 1.5, despensa: 2.5, dormitorio: 3 };
+    if (!P.dev.some((d) => d.k === 'qdc')) {
+      let best = null, bs = Infinity;
+      for (const a of P.amb) {
+        if (pesoAmb[a.tipo] == null) continue;
+        const pt = pontoParede(P, a, (p) => -dist(p, cg) + 0.3 * Math.min(distPortas(P, a, p), 1.5));
+        if (!pt) continue;
+        const v = dist(pt, cg) + pesoAmb[a.tipo];
+        if (v < bs) { bs = v; best = { a, pt }; }
+      }
+      if (best) put(best.a, 'qdc', best.pt);
+      else res.notas.push('Não achei parede de local seco para o quadro: insira-o manualmente.');
+    }
+    // 5. medição no limite do terreno, do lado da rua
+    if (!P.dev.some((d) => d.k === 'med')) {
+      const x0 = Math.min(...P.amb.map((a) => a.x)), y0 = Math.min(...P.amb.map((a) => a.y));
+      const x1 = Math.max(...P.amb.map((a) => a.x + a.w)), y1 = Math.max(...P.amb.map((a) => a.y + a.h));
+      const q = P.dev.find((d) => d.k === 'qdc') || { x: (x0 + x1) / 2, y: (y0 + y1) / 2 };
+      const m = 1.5;
+      const pos = { baixo: { x: q.x, y: y1 + m }, cima: { x: q.x, y: y0 - m }, esquerda: { x: x0 - m, y: q.y }, direita: { x: x1 + m, y: q.y } }[op.frente] || { x: q.x, y: y1 + m };
+      P.dev.push({ id: uid('d'), k: 'med', x: +pos.x.toFixed(2), y: +pos.y.toFixed(2) });
+    }
+    P.par.autoRota = true;
+    for (const d of P.dev) { if (d.k === 'luz') res.luz++; if (d.k.startsWith('int')) res.int++; if (d.k === 'tug') res.tug++; }
+    res.int = P.dev.filter((d) => d.k.startsWith('int')).length;
+    res.tug = P.dev.filter((d) => d.k === 'tug').length;
+    res.tue = P.dev.filter((d) => d.k === 'tue').length;
+    if (!P.dev.some((d) => d.k === 'porta')) res.notas.push('Sem portas desenhadas: os interruptores ficaram num canto. Desenhe as portas e rode de novo para posicioná-los ao lado delas.');
+    return res;
   };
 
   /* ------------------------------------------------------------------ */
