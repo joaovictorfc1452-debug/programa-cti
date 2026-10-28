@@ -167,6 +167,7 @@ function renderView() {
 function renderAll() {
   $('#projNome').value = S.P.nome;
   $('#btnUndo').disabled = !S.undo.length; $('#btnRedo').disabled = !S.redo.length;
+  if ($('#hudUndo')) { $('#hudUndo').disabled = !S.undo.length; $('#hudRedo').disabled = !S.redo.length; }
   renderTabs(); renderStatus(); renderSaveChip(); renderView();
 }
 function renderStatus() {
@@ -185,7 +186,7 @@ function renderStatus() {
 /* ---------- modal, aviso, exportação ---------- */
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
-  clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, 3200);
+  clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, Math.max(3200, String(msg).length * 60));
 }
 function abrirModal(html) { $('#dialog').innerHTML = html; $('#modal').hidden = false; const f = $('#dialog').querySelector('input, button'); if (f) f.focus(); }
 function fecharModal() { $('#modal').hidden = true; $('#dialog').innerHTML = ''; }
@@ -308,6 +309,7 @@ function bindGlobal() {
   window.addEventListener('hashchange', () => { const v = location.hash.slice(1); if (v && v !== S.view) setView(v, false); });
   $('#projNome').addEventListener('change', (e) => { const v = e.target.value.trim() || 'Projeto sem nome'; mutate((P) => { P.nome = v; }); });
   $('#btnUndo').onclick = desfazer; $('#btnRedo').onclick = refazer;
+  $('#hudUndo').onclick = desfazer; $('#hudRedo').onclick = refazer;
   $('#btnProjetos').onclick = () => modalProjetos();
   $('#btnExport').onclick = (e) => { e.stopPropagation(); if ($('#menuExp')) fecharMenus(); else menuExportar(e.currentTarget); };
   document.addEventListener('click', (e) => {
@@ -1070,7 +1072,8 @@ function inspProjeto() {
   const leg = S.R.circ.map((c) => `<button data-act="hicirc" data-id="${c.id}" aria-pressed="${S.hiCirc === c.id}"><span class="sw" style="background:${corCirc(c.id)}"></span><span class="cid">${c.id}</span><span class="cds">${esc(c.desc)}</span><span class="cva">${ni(c.va)}</span></button>`).join('');
   return `<div><h2>${esc(P.nome)}</h2><div class="ifc">IfcProject · modelo único: ${P.amb.length} ambientes, ${P.dev.length} elementos</div></div>
   <div><h3>Circuitos</h3><div class="legend">${leg || '<p class="note">Insira pontos para gerar circuitos.</p>'}</div></div>
-  <div class="row"><button class="btn pri" data-act="completar-todos">Completar pontos mínimos</button><button class="btn" data-act="fixar-rotas">Fixar rotas</button></div>
+  <div class="row"><button class="btn pri" data-act="auto-abrir">⚡ Projetar automaticamente</button></div>
+  <div class="row"><button class="btn" data-act="completar-todos">Completar pontos mínimos</button><button class="btn" data-act="fixar-rotas">Fixar rotas</button></div>
   <div><h3>Dados do projeto</h3><div class="form">
     ${lab('meta.cliente', 'Cliente')}${fIn('meta.cliente', m.cliente)}
     ${lab('meta.endereco', 'Endereço da obra')}${fIn('meta.endereco', m.endereco)}
@@ -1138,8 +1141,34 @@ function onInspChange(e) {
     else if (scope === 'meta') P.meta[key] = v;
   });
 }
+function modalAuto() {
+  const ops = Object.entries(E.AUTO_OPCOES).map(([k, v]) => `<label class="check" style="grid-template-columns:auto minmax(0,1fr)"><input type="checkbox" id="auto-${k}"${v.def ? ' checked' : ''}><span>${esc(v.n)}</span></label>`).join('');
+  const nPontos = S.P.dev.filter((d) => d.k !== 'porta').length;
+  abrirModal(`<h2>Projetar automaticamente</h2>
+    <p class="note">A partir dos ambientes e portas desenhados, o programa coloca luzes, interruptores ao lado das portas, tomadas mínimas da NBR 5410, pontos de uso específico, o quadro em local seco perto do centro das cargas e a medição no limite do terreno. Depois divide os circuitos, dimensiona cabos, disjuntores e DR e define a categoria CPFL pela GED-13.</p>
+    ${S.P.amb.length ? '' : '<div class="warnbox">Desenhe primeiro os ambientes da casa (ferramenta Ambiente) e as portas.</div>'}
+    <div class="panel" style="padding:8px 14px">${ops}</div>
+    <div class="fields"><label class="field">Lado da rua (frente do terreno)<select id="auto-frente"><option value="baixo">Embaixo na planta</option><option value="cima">Em cima na planta</option><option value="esquerda">À esquerda</option><option value="direita">À direita</option></select></label>
+      <label class="field">Pontos já existentes (${nPontos})<select id="auto-subst"><option value="1">Substituir (mantém ambientes e portas)</option><option value="0">Manter e só completar</option></select></label></div>
+    <div class="row"><button class="btn pri" data-act="auto-rodar"${S.P.amb.length ? '' : ' disabled'}>Projetar agora</button><button class="btn" data-act="fechar">Cancelar</button></div>
+    <p class="note">Ctrl+Z ou a seta de desfazer volta ao projeto anterior.</p>`);
+}
 function acaoPlanta(act, el) {
   const id = el.dataset.id;
+  if (act === 'auto-abrir') { modalAuto(); return; }
+  if (act === 'auto-rodar') {
+    const op = { frente: $('#auto-frente').value, substituir: $('#auto-subst').value === '1' };
+    for (const k of Object.keys(E.AUTO_OPCOES)) op[k] = $('#auto-' + k).checked;
+    let res = null;
+    mutate((P) => { res = E.projetarAuto(P, op); });
+    fecharModal();
+    S.sel = null; S.hiCirc = null;
+    setView('planta'); requestAnimationFrame(fitPlan);
+    if (res && res.erro) { toast(res.erro); return; }
+    const R = S.R;
+    toast(`Projeto gerado: ${R.circ.length} circuitos, categoria ${R.entrada.cat.c}, ${R.resumo.nErro} erros.${res.notas.length ? ' ' + res.notas[0] : ''}`);
+    return;
+  }
   if (act === 'insp-fechar') { S.inspOpen = false; renderInsp(); }
   if (act === 'luz-centro' || act === 'luz-grade') {
     const a = ambById(id); if (!a) return;
@@ -1261,7 +1290,7 @@ function planSVGStatic(standalone) {
 }
 
 /* ===================== vista 3D (mesmo modelo) ===================== */
-const V3 = { ok: null, r: null, scene: null, cam: null, grp: null, tgt: null, th: -2.2, ph: 0.92, dist: 18, paredes: 'meia', eletr: true, pick: [], drag: null, ptrs: new Map(), lastKey: null, modo: 'orbita', eu: { x: 0, z: 0 }, yaw: 0, pitch: 0, colisao: true, mv: new Set(), raf: null, last: null, rapido: false, walls: [], ambEu: null, abertas: new Set(), portaAng: {}, doorObjs: {}, doorSegs: [], rafPorta: null };
+const V3 = { ok: null, r: null, scene: null, cam: null, grp: null, tgt: null, th: -2.2, ph: 0.92, dist: 18, paredes: 'meia', eletr: true, pick: [], drag: null, ptrs: new Map(), lastKey: null, modo: 'orbita', eu: { x: 0, z: 0 }, yaw: 0, pitch: 0, colisao: true, mv: new Set(), raf: null, last: null, rapido: false, walls: [], ambEu: null, abertas: new Set(), portaAng: {}, doorObjs: {}, doorSegs: [], rafPorta: null, qdAberto: true, qdAng: null, qdObj: null };
 const cssVar = (n) => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim() || '#888888';
 
 function init3d() {
@@ -1447,16 +1476,65 @@ function build3d() {
       } else if (pr.plug) tomada(true);
       else cega();
     } else if (d.k === 'qdc') {
-      box(0.38, 0.48, 0.02, '#C9CED2', 0, 0, 0.01, { metalness: 0.4, roughness: 0.4 });
-      box(0.34, 0.44, 0.006, '#B3B9BE', 0, 0, 0.023, { metalness: 0.4, roughness: 0.4 });
-      box(0.3, 0.1, 0.004, ESC, 0, 0.09, 0.027);
-      box(0.3, 0.1, 0.004, ESC, 0, -0.06, 0.027);
-      const cs = R.circ, porLinha = 14;
-      cs.forEach((c, i) => {
-        const lin = Math.floor(i / porLinha), col = i % porLinha;
-        box(0.017, 0.05, 0.012, S.layers.cores ? corCirc(c.id) : '#E8E8E8', -0.13 + col * 0.02, (lin === 0 ? 0.09 : -0.06), 0.034);
-      });
-      box(0.05, 0.05, 0.004, '#F2B705', 0.13, 0.19, 0.028);
+      // quadro de distribuição: caixa branca, trilhos DIN, geral, DPS, IDR e um disjuntor por circuito, com a cor do circuito na etiqueta
+      const MOD = 0.018, tam = R.quadro.tamanho, porLinha = tam > 48 ? 18 : 12;
+      const blocos = [{ tipo: 'geral', n: R.entrada.fases }];
+      if (S.P.par.dpsQd) blocos.push({ tipo: 'dps', n: R.entrada.fases + 1 });
+      for (const c of R.circ) { if (c.dr) blocos.push({ tipo: 'idr', n: 2, c }); blocos.push({ tipo: 'disj', n: c.polos, c }); }
+      let nl = 1, cc0 = 0;
+      for (const b of blocos) { if (cc0 + b.n > porLinha) { nl++; cc0 = 0; } cc0 += b.n; }
+      const linhas = Math.max(nl, Math.ceil(tam / porLinha));
+      const Wi = porLinha * MOD + 0.05, Hi = linhas * 0.14 + 0.07, W = Wi + 0.04, H = Hi + 0.04;
+      const fases = R.entrada.fases, FC = { A: '#1E1E1E', B: '#C62828', C: '#6D4C41' };
+      // caixa: fundo e moldura
+      box(Wi, Hi, 0.004, '#E9ECEC', 0, 0, 0.002);
+      box(W, 0.02, 0.034, '#F4F5F4', 0, H / 2 - 0.01, 0.017); box(W, 0.02, 0.034, '#F4F5F4', 0, -H / 2 + 0.01, 0.017);
+      box(0.02, H, 0.034, '#F4F5F4', -W / 2 + 0.01, 0, 0.017); box(0.02, H, 0.034, '#F4F5F4', W / 2 - 0.01, 0, 0.017);
+      // barramentos de neutro (azul) e terra (verde-amarelo)
+      box(0.11, 0.012, 0.012, '#1E63B5', -Wi / 2 + 0.075, Hi / 2 - 0.022, 0.01);
+      box(0.11, 0.012, 0.012, '#3C9A3C', Wi / 2 - 0.075, -Hi / 2 + 0.022, 0.01);
+      for (let k = 0; k < 6; k++) { box(0.006, 0.006, 0.004, '#C9CED2', -Wi / 2 + 0.03 + k * 0.018, Hi / 2 - 0.022, 0.018, { metalness: 0.6 }); box(0.006, 0.006, 0.004, '#C9CED2', Wi / 2 - 0.12 + k * 0.018, -Hi / 2 + 0.022, 0.018, { metalness: 0.6 }); }
+      // lista de módulos na ordem do quadro
+      let lin = 0, col = 0;
+      const y0 = Hi / 2 - 0.07 - 0.035;
+      const rowY = (l) => y0 - l * 0.14;
+      for (let l = 0; l < linhas; l++) box(Wi - 0.02, 0.035, 0.007, '#A9AFB4', 0, rowY(l), 0.007, { metalness: 0.5, roughness: 0.4 });
+      const x0 = -porLinha * MOD / 2;
+      for (const b of blocos) {
+        if (col + b.n > porLinha) { lin++; col = 0; }
+        if (lin >= linhas) break;
+        const bw = b.n * MOD, cx = x0 + col * MOD + bw / 2, cy = rowY(lin);
+        const corpo = b.tipo === 'dps' ? '#2E8B3E' : '#F6F6F4';
+        box(bw - 0.001, 0.088, 0.024, corpo, cx, cy, 0.018, { roughness: 0.5 });
+        if (b.tipo === 'geral' || b.tipo === 'idr') box(bw - 0.002, 0.008, 0.001, '#1E63B5', cx, cy + 0.024, 0.0305);
+        for (let p = 0; p < b.n; p++) {
+          const px = x0 + (col + p) * MOD + MOD / 2;
+          const tog = b.tipo === 'idr' && p === 0 ? '#1E63B5' : '#1B1D20';
+          if (b.tipo !== 'dps' || p === 0) box(0.008, 0.022, 0.009, tog, px, cy, 0.034);
+          box(0.005, 0.005, 0.002, '#6C7278', px, cy + 0.036, 0.031); box(0.005, 0.005, 0.002, '#6C7278', px, cy - 0.036, 0.031);
+        }
+        if (b.c) {
+          // etiqueta com a cor do circuito e fio de saída na cor da fase
+          box(bw - 0.002, 0.01, 0.001, S.layers.cores ? corCirc(b.c.id) : '#CCCCCC', cx, cy - 0.024, 0.0305);
+          if (b.tipo === 'disj') {
+            const fs = String(b.c.fase || 'A').split('');
+            fs.forEach((f, k) => { const fx = x0 + (col + k) * MOD + MOD / 2; const fio = new T.Mesh(new T.CylinderGeometry(0.0025, 0.0025, 0.035, 8), M(FC[f] || FC.A)); fio.position.set(fx, cy - 0.062, 0.02); grp.add(fio); });
+          }
+        } else if (b.tipo === 'geral') {
+          for (let k = 0; k < fases; k++) { const fx = x0 + (col + k) * MOD + MOD / 2; const fio = new T.Mesh(new T.CylinderGeometry(0.003, 0.003, 0.035, 8), M(FC['ABC'.at(k)])); fio.position.set(fx, cy + 0.062, 0.02); grp.add(fio); }
+        }
+        col += b.n;
+      }
+      // tampa com dobradiça à esquerda: abre e fecha
+      const piv = new T.Group(); piv.position.set(-W / 2, 0, 0.036);
+      const tampa = new T.Mesh(new T.BoxGeometry(W, H, 0.006), M('#F7F7F5', { roughness: 0.4 }));
+      tampa.position.set(W / 2, 0, 0.003); tampa.userData.sel = { t: 'qdtampa', id: d.id }; piv.add(tampa); V3.pick.push(tampa);
+      const pux = new T.Mesh(new T.BoxGeometry(0.012, 0.05, 0.008), M('#9AA0A6')); pux.position.set(W - 0.025, 0, 0.009); pux.userData.sel = tampa.userData.sel; piv.add(pux); V3.pick.push(pux);
+      const plq = new T.Mesh(new T.BoxGeometry(0.06, 0.05, 0.002), M('#F2B705')); plq.position.set(W / 2, H / 2 - 0.05, 0.007); plq.userData.sel = tampa.userData.sel; piv.add(plq); V3.pick.push(plq);
+      if (V3.qdAng == null) V3.qdAng = V3.qdAberto ? 1 : 0;
+      piv.rotation.y = -1.75 * V3.qdAng;
+      V3.qdObj = piv;
+      grp.add(piv);
     } else if (d.k === 'med') {
       box(0.16, 2.2, 0.16, '#A7ADB0', 0, 1.1, 0);
       box(0.32, 0.46, 0.18, '#C9CED2', 0, 1.5, 0.17, { metalness: 0.4, roughness: 0.4 });
@@ -1468,7 +1546,7 @@ function build3d() {
       grp.position.set(d.x + nn[0] * of, rd.h, d.y + nn[1] * of);
       grp.rotation.y = Math.atan2(nn[0], nn[1]);
     } else grp.position.set(d.x, 0, d.y);
-    for (const m of grp.children) { m.userData.sel = { t: 'dev', id: d.id }; V3.pick.push(m); }
+    for (const m of grp.children) { if (!m.geometry) continue; m.userData.sel = { t: 'dev', id: d.id }; V3.pick.push(m); }
     g.add(grp);
   }
   // eletrodutos: tubos fechados, curvas arredondadas nas junções, descidas alinhadas aos pontos
@@ -1525,6 +1603,10 @@ function alternarPorta(id) {
   if (V3.abertas.has(id)) V3.abertas.delete(id); else V3.abertas.add(id);
   animarPortas(); render3dInsp();
 }
+function alternarQuadro(v) {
+  V3.qdAberto = v == null ? !V3.qdAberto : v;
+  animarPortas(); render3dInsp();
+}
 function todasPortas(abrir) {
   for (const d of S.P.dev.filter((x) => x.k === 'porta')) { if (abrir) V3.abertas.add(d.id); else V3.abertas.delete(d.id); }
   animarPortas(); render3dInsp();
@@ -1542,6 +1624,8 @@ function animarPortas() {
         V3.portaAng[id] = nv; const o = V3.doorObjs[id]; o.piv.rotation.y = o.abre * nv; ativo = true;
       }
     }
+    const qa = V3.qdAberto ? 1 : 0, qc = V3.qdAng || 0;
+    if (V3.qdObj && Math.abs(qa - qc) > 0.001) { V3.qdAng = qc + Math.sign(qa - qc) * Math.min(Math.abs(qa - qc), dt * 2.5); V3.qdObj.rotation.y = -1.75 * V3.qdAng; ativo = true; }
     frame3d();
     V3.rafPorta = ativo ? requestAnimationFrame(passo) : null;
   };
@@ -1675,6 +1759,7 @@ function render3dInsp() {
   el.innerHTML = `<div><h2>Vista 3D</h2><div class="ifc">gerada do mesmo modelo da planta</div></div>
     <div><h3>Modo</h3><div class="seg"><button data-modo="orbita" aria-pressed="${!pessoa}">3ª pessoa (órbita)</button><button data-modo="pessoa" aria-pressed="${pessoa}">1ª pessoa (caminhar)</button></div></div>
     ${modoUI}
+    ${S.P.dev.some((d) => d.k === 'qdc') ? `<div><h3>Quadro de distribuição</h3><div class="row"><button class="btn" data-qdc="1">${V3.qdAberto ? 'Fechar a tampa do quadro' : 'Abrir a tampa do quadro'}</button></div><p class="note" style="margin-top:6px">${S.R.circ.length} disjuntores de circuito, cada um com a etiqueta na cor do seu circuito; geral ${S.R.entrada.fases}P, ${S.R.circ.filter((c) => c.dr).length} IDR${S.P.par.dpsQd ? ' e DPS (verde)' : ''}. Toque na tampa para abrir ou fechar.</p></div>` : ''}
     <div><h3>Portas</h3><div class="row"><button class="btn" data-portas="abrir">Abrir todas</button><button class="btn" data-portas="fechar">Fechar todas</button></div>
       <div class="legend" style="margin-top:8px">${S.P.dev.filter((d) => d.k === 'porta').map((d) => `<button data-porta="${d.id}" aria-pressed="${V3.abertas.has(d.id)}"><span class="sw" style="background:${V3.abertas.has(d.id) ? 'var(--ok)' : 'var(--ink-3)'}"></span><span class="cid">${V3.abertas.has(d.id) ? 'aberta' : 'fechada'}</span><span class="cds">${esc(nomePorta(d))}</span><span class="cva">${nf(d.w || 0.8, 2)} m</span></button>`).join('') || '<p class="note">Nenhuma porta no projeto.</p>'}</div>
       <p class="note" style="margin-top:6px">Toque numa porta na vista 3D para abrir ou fechar. Na 1ª pessoa, porta fechada bloqueia a passagem.</p></div>
@@ -1757,6 +1842,7 @@ function bind3d() {
   $('#insp3').addEventListener('click', (e) => {
     const md = e.target.closest('[data-modo]'); if (md) { setModo3d(md.dataset.modo); return; }
     const pt = e.target.closest('[data-porta]'); if (pt) { alternarPorta(pt.dataset.porta); return; }
+    if (e.target.closest('[data-qdc]')) { alternarQuadro(); return; }
     const pa = e.target.closest('[data-portas]'); if (pa) { todasPortas(pa.dataset.portas === 'abrir'); return; }
     const p = e.target.closest('[data-p3]'); if (p) { V3.paredes = p.dataset.p3; build3d(); frame3d(); render3dInsp(); return; }
     const t = e.target.closest('[data-t3]'); if (t) { if (t.dataset.t3 === 'eletr') V3.eletr = !V3.eletr; else S.layers.cores = !S.layers.cores; build3d(); frame3d(); render3dInsp(); return; }
@@ -1771,6 +1857,7 @@ function pick3d(e) {
   const rc = new T.Raycaster(); rc.setFromCamera(v, V3.cam);
   const hit = rc.intersectObjects(V3.pick, false)[0];
   if (hit && hit.object.userData.sel.t === 'porta') { alternarPorta(hit.object.userData.sel.id); return; }
+  if (hit && hit.object.userData.sel.t === 'qdtampa') { alternarQuadro(); return; }
   S.sel = hit ? hit.object.userData.sel : null;
   build3d(); frame3d(); render3dInsp();
 }
@@ -1806,7 +1893,7 @@ function sheetCargas() {
   return `<div class="doc">${cab('ABNT NBR 5410:2004 · 9.5.2', 'Previsão de cargas', 'Mínimos de iluminação e de tomadas calculados a partir da geometria de cada ambiente do modelo. Clique numa linha para localizar o ambiente na planta.')}
     <div class="kpis"><div class="kpi"><b>${ni(t.tI)} VA</b><span>iluminação · ${t.nL} pontos</span></div><div class="kpi"><b>${ni(t.tT)} VA</b><span>tomadas de uso geral · ${t.nT} pontos</span></div><div class="kpi"><b>${ni(t.tE)} W</b><span>uso específico · ${t.nE} pontos</span></div><div class="kpi"><b>${nf(S.R.entrada.C, 2)} kW</b><span>carga instalada (GED-13)</span></div></div>
     ${t.html}
-    <div class="row"><button class="btn pri" data-act="completar-todos">Completar pontos mínimos em todos os ambientes</button></div>
+    <div class="row"><button class="btn pri" data-act="auto-abrir">⚡ Projetar automaticamente</button><button class="btn" data-act="completar-todos">Completar pontos mínimos em todos os ambientes</button></div>
     <div><h2>Pontos de uso específico</h2>${tabTue(true)}</div>
     <div class="grid2">
       <div class="panel"><h2>Iluminação (9.5.2.1)</h2><p>Pelo menos um ponto de luz no teto por cômodo, comandado por interruptor. Carga mínima: 100 VA até 6 m²; acima disso, 100 VA para os primeiros 6 m² mais 60 VA a cada 4 m² inteiros. O ambiente distribui essa carga entre seus pontos quando a potência do ponto não é informada.</p></div>
