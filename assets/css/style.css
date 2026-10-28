@@ -211,6 +211,10 @@ tr.click { cursor: pointer; } tr.click:hover td { background: var(--sheet-2); }
 .pad3 button { height: 44px; border: 1px solid var(--rule); border-radius: 8px; background: var(--sheet); color: var(--ink); font-size: 17px; opacity: .92; touch-action: none; }
 .pad3 button.on, .pad3 button:active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .modo3 { position: absolute; left: 12px; top: 12px; }
+#c3.c3-full { position: fixed; inset: 0; z-index: 45; background: var(--paper); }
+#c3.c3-full .modo3 { top: calc(12px + env(safe-area-inset-top, 0px)); left: calc(12px + env(safe-area-inset-left, 0px)); right: 12px; flex-wrap: wrap; }
+#c3.c3-full .pad3 { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); right: calc(16px + env(safe-area-inset-right, 0px)); }
+.modo3 { display: inline-flex; max-width: calc(100% - 24px); overflow-x: auto; }
 
 /* rodapé */
 .status { display: flex; gap: 6px 18px; align-items: center; font-size: 12px; color: var(--ink-2); padding-block: 6px; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
