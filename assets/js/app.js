@@ -1260,7 +1260,7 @@ function planSVGStatic(standalone) {
 }
 
 /* ===================== vista 3D (mesmo modelo) ===================== */
-const V3 = { ok: null, r: null, scene: null, cam: null, grp: null, tgt: null, th: -2.2, ph: 0.92, dist: 18, paredes: 'meia', eletr: true, pick: [], drag: null, ptrs: new Map(), lastKey: null, modo: 'orbita', eu: { x: 0, z: 0 }, yaw: 0, pitch: 0, colisao: true, mv: new Set(), raf: null, last: null, rapido: false, walls: [], ambEu: null };
+const V3 = { ok: null, r: null, scene: null, cam: null, grp: null, tgt: null, th: -2.2, ph: 0.92, dist: 18, paredes: 'meia', eletr: true, pick: [], drag: null, ptrs: new Map(), lastKey: null, modo: 'orbita', eu: { x: 0, z: 0 }, yaw: 0, pitch: 0, colisao: true, mv: new Set(), raf: null, last: null, rapido: false, walls: [], ambEu: null, abertas: new Set(), portaAng: {}, doorObjs: {}, doorSegs: [], rafPorta: null };
 const cssVar = (n) => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim() || '#888888';
 
 function init3d() {
@@ -1358,6 +1358,30 @@ function build3d() {
       const ed = new T.LineSegments(new T.EdgesGeometry(geo), em); ed.position.copy(m.position); g.add(ed);
     }
   }
+  // portas: folha articulada na dobradiça, abre e fecha no 3D
+  V3.doorObjs = {}; V3.doorSegs = [];
+  for (const d of P.dev.filter((x) => x.k === 'porta')) {
+    let n = null;
+    for (const r of P.amb) { n = E.normalNaBorda(r, d); if (n) break; }
+    if (!n) n = [0, 1];
+    const w = d.w || 0.8, alto = PW === 'meia' ? 1.2 : 2.1;
+    const horiz = n[0] === 0;
+    V3.doorSegs.push(horiz ? { id: d.id, o: 'h', c: d.y, a: d.x - w / 2, b: d.x + w / 2 } : { id: d.id, o: 'v', c: d.x, a: d.y - w / 2, b: d.y + w / 2 });
+    if (PW === 'oculta') continue;
+    const piv = new T.Group();
+    piv.position.set(horiz ? d.x - w / 2 : d.x, 0, horiz ? d.y : d.y - w / 2);
+    const sel = S.sel && S.sel.t === 'porta' && S.sel.id === d.id;
+    const folha = new T.Mesh(horiz ? new T.BoxGeometry(w - 0.02, alto, 0.04) : new T.BoxGeometry(0.04, alto, w - 0.02), mat('#B98B5A', sel ? { emissive: new T.Color(cssVar('--accent')), emissiveIntensity: 0.6 } : {}));
+    folha.position.set(horiz ? w / 2 : 0, alto / 2, horiz ? 0 : w / 2);
+    folha.userData.sel = { t: 'porta', id: d.id };
+    piv.add(folha); V3.pick.push(folha);
+    const abre = horiz ? -Math.PI / 2 * n[1] : Math.PI / 2 * n[0];
+    const ang = V3.portaAng[d.id] != null ? V3.portaAng[d.id] : (V3.abertas.has(d.id) ? 1 : 0);
+    V3.portaAng[d.id] = ang;
+    piv.rotation.y = abre * ang;
+    V3.doorObjs[d.id] = { piv, abre };
+    g.add(piv);
+  }
   // dispositivos
   const branco = cssVar('--sheet');
   for (const d of P.dev) {
@@ -1388,35 +1412,49 @@ function build3d() {
     m.userData.sel = { t: 'dev', id: d.id };
     g.add(m); V3.pick.push(m);
   }
-  // eletrodutos
+  // eletrodutos: tubos fechados, curvas arredondadas nas junções, descidas alinhadas aos pontos
   if (V3.eletr) {
     const base = mat(cssVar('--ink-3')), manual = mat(cssVar('--ink-2'));
+    const hiMat = S.hiCirc ? mat(corCirc(S.hiCirc), { emissive: new T.Color(corCirc(S.hiCirc)), emissiveIntensity: 0.35 }) : null;
+    const R0 = 0.014, R1 = 0.024;
     const tubo = (p1, p2, r, mm) => {
-      const dv = new T.Vector3().subVectors(p2, p1); const L = dv.length(); if (L < 0.01) return;
-      const mesh = new T.Mesh(new T.CylinderGeometry(r, r, L, 8, 1, true), mm);
+      const dv = new T.Vector3().subVectors(p2, p1); const L = dv.length(); if (L < 0.005) return;
+      const mesh = new T.Mesh(new T.CylinderGeometry(r, r, L, 10, 1, false), mm);
       mesh.position.copy(p1).addScaledVector(dv, 0.5);
-      mesh.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), dv.normalize());
+      mesh.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), dv.clone().normalize());
       g.add(mesh);
     };
-    const nivel = (id) => { const rd = R.dev[id]; return (rd ? rd.pd : P.par.pd) - 0.06; };
+    const juntas = new Map();
+    const junta = (p, r, mm) => { const k = p.x.toFixed(2) + '|' + p.y.toFixed(2) + '|' + p.z.toFixed(2); const o = juntas.get(k); if (!o || r > o.r) juntas.set(k, { p, r, mm }); };
+    // ponto de conexão de cada elemento na laje (pontos de parede ficam colados à parede, no eixo da descida)
+    const noLaje = (id) => {
+      const d = devById(id), rd = R.dev[id];
+      const n = (rd && rd.nrm) || [0, 0], off = d.k === 'luz' ? 0 : 0.05;
+      return new T.Vector3(d.x + n[0] * off, (rd ? rd.pd : P.par.pd) - 0.06, d.y + n[1] * off);
+    };
     for (const e of R.edges) {
       const A = devById(e.a), B = devById(e.b); if (!A || !B) continue;
+      if (!e.circs.size && !e.ret.length) continue;
       const hi = S.hiCirc && e.circs.has(S.hiCirc);
-      const mm = hi ? mat(corCirc(S.hiCirc), { emissive: new T.Color(corCirc(S.hiCirc)), emissiveIntensity: 0.35 }) : e.manual ? manual : base;
-      tubo(new T.Vector3(A.x, nivel(A.id), A.y), new T.Vector3(B.x, nivel(B.id), B.y), hi ? 0.03 : 0.018, mm);
+      const mm = hi ? hiMat : e.manual ? manual : base, r = hi ? R1 : R0;
+      const pa = noLaje(e.a), pb = noLaje(e.b);
+      tubo(pa, pb, r, mm); junta(pa, r, mm); junta(pb, r, mm);
     }
     for (const d of P.dev) {
       const rd = R.dev[d.id]; if (!rd || rd.drop <= 0 || d.k === 'porta' || d.k === 'med' || d.k === 'luz') continue;
       const hi = S.hiCirc && rd.circ === S.hiCirc;
-      const n = rd.nrm || [0, 0];
-      const x = d.x + n[0] * 0.05, z = d.y + n[1] * 0.05;
-      tubo(new T.Vector3(x, rd.pd - 0.06, z), new T.Vector3(x, rd.h, z), hi ? 0.03 : 0.018, hi ? mat(corCirc(S.hiCirc)) : base);
+      const mm = hi ? hiMat : base, r = hi ? R1 : R0;
+      const top = noLaje(d.id), bot = new T.Vector3(top.x, rd.h, top.z);
+      tubo(top, bot, r, mm); junta(top, r, mm);
     }
+    for (const { p, r, mm } of juntas.values()) { const sph = new T.Mesh(new T.SphereGeometry(r * 1.15, 10, 8), mm); sph.position.copy(p); g.add(sph); }
     const med = P.dev.find((d) => d.k === 'med'), qd = P.dev.find((d) => d.k === 'qdc');
     if (med && qd) {
-      const fm = mat(cssVar('--ink-2'));
-      const p0 = new T.Vector3(med.x, 0.02, med.y), p1 = new T.Vector3(med.x, 0.02, qd.y), p2 = new T.Vector3(qd.x, 0.02, qd.y), p3 = new T.Vector3(qd.x, R.dev[qd.id].h, qd.y);
-      tubo(p0, p1, 0.03, fm); tubo(p1, p2, 0.03, fm); tubo(p2, p3, 0.03, fm);
+      const fm = mat(cssVar('--ink-2')), rq = R.dev[qd.id], nq = (rq && rq.nrm) || [0, 0];
+      const qx = qd.x + nq[0] * 0.05, qz = qd.y + nq[1] * 0.05;
+      const pts = [new T.Vector3(med.x, 0.03, med.y), new T.Vector3(med.x, 0.03, qz), new T.Vector3(qx, 0.03, qz), new T.Vector3(qx, rq ? rq.h : 1.5, qz)];
+      for (let k = 0; k < 3; k++) tubo(pts[k], pts[k + 1], 0.03, fm);
+      for (const pt of pts.slice(1, 3)) { const sph = new T.Mesh(new T.SphereGeometry(0.034, 10, 8), fm); sph.position.copy(pt); g.add(sph); }
     }
   }
   V3.scene.add(g);
@@ -1424,9 +1462,40 @@ function build3d() {
 /* ---------- câmera: órbita (3ª pessoa) e caminhada (1ª pessoa) ---------- */
 const OLHO = 1.6, RAIO_CORPO = 0.22;
 function paredesEfetivas() { return V3.modo === 'pessoa' ? 'cheia' : V3.paredes; }
+function alternarPorta(id) {
+  if (V3.abertas.has(id)) V3.abertas.delete(id); else V3.abertas.add(id);
+  animarPortas(); render3dInsp();
+}
+function todasPortas(abrir) {
+  for (const d of S.P.dev.filter((x) => x.k === 'porta')) { if (abrir) V3.abertas.add(d.id); else V3.abertas.delete(d.id); }
+  animarPortas(); render3dInsp();
+}
+function animarPortas() {
+  if (V3.rafPorta) return;
+  let last = null;
+  const passo = (ts) => {
+    const dt = last ? Math.min(0.05, (ts - last) / 1000) : 0.016; last = ts;
+    let ativo = false;
+    for (const id of Object.keys(V3.doorObjs || {})) {
+      const alvo = V3.abertas.has(id) ? 1 : 0, cur = V3.portaAng[id] || 0;
+      if (Math.abs(alvo - cur) > 0.001) {
+        const nv = cur + Math.sign(alvo - cur) * Math.min(Math.abs(alvo - cur), dt * 2.5);
+        V3.portaAng[id] = nv; const o = V3.doorObjs[id]; o.piv.rotation.y = o.abre * nv; ativo = true;
+      }
+    }
+    frame3d();
+    V3.rafPorta = ativo ? requestAnimationFrame(passo) : null;
+  };
+  V3.rafPorta = requestAnimationFrame(passo);
+}
+function nomePorta(d) {
+  const nomes = S.P.amb.filter((r) => E.normalNaBorda(r, d)).map((r) => r.nome);
+  return nomes.length ? nomes.join(' / ') : 'Porta externa';
+}
 function bloqueado(x, z) {
   if (!V3.colisao || V3.modo !== 'pessoa') return false;
-  for (const s of V3.walls || []) {
+  const fechadas = (V3.doorSegs || []).filter((d) => (V3.portaAng[d.id] || 0) < 0.5);
+  for (const s of (V3.walls || []).concat(fechadas)) {
     if (s.o === 'h') { if (Math.abs(z - s.c) < RAIO_CORPO && x > s.a - 0.06 && x < s.b + 0.06) return true; }
     else if (Math.abs(x - s.c) < RAIO_CORPO && z > s.a - 0.06 && z < s.b + 0.06) return true;
   }
@@ -1534,6 +1603,9 @@ function render3dInsp() {
   el.innerHTML = `<div><h2>Vista 3D</h2><div class="ifc">gerada do mesmo modelo da planta</div></div>
     <div><h3>Modo</h3><div class="seg"><button data-modo="orbita" aria-pressed="${!pessoa}">3ª pessoa (órbita)</button><button data-modo="pessoa" aria-pressed="${pessoa}">1ª pessoa (caminhar)</button></div></div>
     ${modoUI}
+    <div><h3>Portas</h3><div class="row"><button class="btn" data-portas="abrir">Abrir todas</button><button class="btn" data-portas="fechar">Fechar todas</button></div>
+      <div class="legend" style="margin-top:8px">${S.P.dev.filter((d) => d.k === 'porta').map((d) => `<button data-porta="${d.id}" aria-pressed="${V3.abertas.has(d.id)}"><span class="sw" style="background:${V3.abertas.has(d.id) ? 'var(--ok)' : 'var(--ink-3)'}"></span><span class="cid">${V3.abertas.has(d.id) ? 'aberta' : 'fechada'}</span><span class="cds">${esc(nomePorta(d))}</span><span class="cva">${nf(d.w || 0.8, 2)} m</span></button>`).join('') || '<p class="note">Nenhuma porta no projeto.</p>'}</div>
+      <p class="note" style="margin-top:6px">Toque numa porta na vista 3D para abrir ou fechar. Na 1ª pessoa, porta fechada bloqueia a passagem.</p></div>
     <div><h3>Exibir</h3><div class="seg"><button data-t3="eletr" aria-pressed="${V3.eletr}">Eletrodutos</button><button data-t3="cores" aria-pressed="${S.layers.cores}">Cores por circuito</button></div></div>
     <div><h3>Seleção</h3>${selTxt}</div>
     <div><h3>Destacar circuito</h3><div class="legend">${S.R.circ.map((c) => `<button data-act="hicirc3" data-id="${c.id}" aria-pressed="${S.hiCirc === c.id}"><span class="sw" style="background:${corCirc(c.id)}"></span><span class="cid">${c.id}</span><span class="cds">${esc(c.desc)}</span><span class="cva">${ni(c.va)}</span></button>`).join('')}</div></div>`;
@@ -1610,6 +1682,8 @@ function bind3d() {
   });
   $('#insp3').addEventListener('click', (e) => {
     const md = e.target.closest('[data-modo]'); if (md) { setModo3d(md.dataset.modo); return; }
+    const pt = e.target.closest('[data-porta]'); if (pt) { alternarPorta(pt.dataset.porta); return; }
+    const pa = e.target.closest('[data-portas]'); if (pa) { todasPortas(pa.dataset.portas === 'abrir'); return; }
     const p = e.target.closest('[data-p3]'); if (p) { V3.paredes = p.dataset.p3; build3d(); frame3d(); render3dInsp(); return; }
     const t = e.target.closest('[data-t3]'); if (t) { if (t.dataset.t3 === 'eletr') V3.eletr = !V3.eletr; else S.layers.cores = !S.layers.cores; build3d(); frame3d(); render3dInsp(); return; }
     if (e.target.closest('[data-centro3]')) { enquadrar3d(); frame3d(); return; }
@@ -1622,6 +1696,7 @@ function pick3d(e) {
   const v = new T.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   const rc = new T.Raycaster(); rc.setFromCamera(v, V3.cam);
   const hit = rc.intersectObjects(V3.pick, false)[0];
+  if (hit && hit.object.userData.sel.t === 'porta') { alternarPorta(hit.object.userData.sel.id); return; }
   S.sel = hit ? hit.object.userData.sel : null;
   build3d(); frame3d(); render3dInsp();
 }
