@@ -17,7 +17,7 @@ const corCirc = (cid) => { const n = parseInt(String(cid).slice(1), 10) || 1; re
 const VIEWS = [
   ['planta', 'Planta'], ['vista-3d', 'Vista 3D'], ['cargas', 'Previsão de cargas'], ['quadro', 'Quadro de cargas'],
   ['unifilar', 'Unifilar'], ['entrada', 'Entrada CPFL'], ['spda', 'SPDA'], ['nr10', 'NR-10'],
-  ['materiais', 'Materiais'], ['verificacao', 'Verificação'], ['relatorio', 'Relatório']
+  ['materiais', 'Materiais'], ['orcamento', 'Orçamento'], ['verificacao', 'Verificação'], ['relatorio', 'Relatório']
 ];
 
 const S = {
@@ -162,7 +162,7 @@ function renderView() {
   const v = S.view;
   if (v === 'planta') { renderRail(); renderHud(); renderPlan(); renderInsp(); }
   else if (v === 'vista-3d') render3dView();
-  else { const fn = SHEETS[v]; if (fn) { const el = $('#v-' + v); const st = el.scrollTop; el.innerHTML = fn(); el.scrollTop = st; } }
+  else { const fn = SHEETS[v]; if (fn) { let el = $('#v-' + v); if (!el) { el = document.createElement('section'); el.className = 'view sheet'; el.id = 'v-' + v; const ref = $('#v-materiais'); if (ref) ref.after(el); else return; } const st = el.scrollTop; el.innerHTML = fn(); el.scrollTop = st; } }
 }
 function renderAll() {
   $('#projNome').value = S.P.nome;
@@ -231,6 +231,7 @@ function menuExportar(btn) {
     <button data-exp="svg">Planta elétrica (.svg)</button>
     <button data-exp="unifilar">Diagrama unifilar (.svg)</button>
     <button data-exp="csv">Lista de materiais (.csv)</button>
+    <button data-exp="orc">Orçamento (.csv)</button>
     <button data-exp="quadro">Quadro de cargas (.csv)</button>`;
   document.body.appendChild(m);
 }
@@ -242,12 +243,24 @@ function exportar(tipo) {
   if (tipo === 'svg') baixar(base + '-planta.svg', planSVGStatic(true));
   if (tipo === 'unifilar') baixar(base + '-unifilar.svg', unifilarSVG(true));
   if (tipo === 'csv') baixar(base + '-materiais.csv', csvMateriais());
+  if (tipo === 'orc') baixar(base + '-orcamento.csv', csvOrcamento());
   if (tipo === 'quadro') baixar(base + '-quadro-de-cargas.csv', csvQuadro());
 }
 const csvCell = (v) => { const s = String(v == null ? '' : v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
 function csvMateriais() {
   const rows = [['Grupo', 'Item', 'Unidade', 'Quantidade']].concat(S.R.bom.map((b) => [b.grupo, b.item, b.unid, b.qtd]));
   return '﻿' + rows.map((r) => r.map(csvCell).join(';')).join('\n');
+}
+function csvOrcamento() {
+  const O = E.orcamento(S.P, S.R);
+  const n2 = (v) => (v == null ? '' : Number(v).toFixed(2).replace('.', ','));
+  const rows = [['Grupo', 'Item', 'Unidade', 'Quantidade', 'Preço unitário (R$)', 'Total (R$)', 'Fonte do preço']];
+  for (const l of O.linhas) rows.push([l.grupo, l.item, l.unid, l.qtd, n2(l.unit), n2(l.total), l.manual ? 'Informado pelo usuário' : l.ref ? `${l.ref.f}${l.ref.d ? ' ' + l.ref.d : ''}` : 'Sem referência']);
+  rows.push([]); rows.push(['', 'Materiais', '', '', '', n2(O.material)]);
+  if (O.op.mo) rows.push(['', `Mão de obra (${O.op.mo} %)`, '', '', '', n2(O.mo)]);
+  if (O.op.bdi) rows.push(['', `BDI (${O.op.bdi} %)`, '', '', '', n2(O.bdi)]);
+  rows.push(['', 'Total estimado', '', '', '', n2(O.total)]);
+  return '\ufeff' + rows.map((r) => r.map(csvCell).join(';')).join('\n');
 }
 function csvQuadro() {
   const rows = [['Circuito', 'Descrição', 'Tensão (V)', 'Fase', 'Potência (VA)', 'Ib (A)', 'Circuitos agrupados', 'FCA', 'FCT', 'Seção (mm²)', 'PE (mm²)', 'Iz corrigida (A)', 'Disjuntor (A)', 'Polos', 'DR', 'Queda (%)', 'Comprimento (m)']];
@@ -334,6 +347,8 @@ function acaoGlobal(act, el, ev) {
     case 'circ-planta': S.hiCirc = id; setView('planta'); break;
     case 'completar-todos': mutate((P) => { let n = 0; for (const a of P.amb) n += E.completarPontos(P, a.id); toast(n ? n + ' pontos inseridos.' : 'Todos os ambientes já atendem ao mínimo.'); }); break;
     case 'baixar-csv': exportar('csv'); break;
+    case 'baixar-orc': exportar('orc'); break;
+    case 'orc-reset': mutate((P) => { P.precos = {}; }); toast('Preços de referência restaurados.'); break;
     case 'baixar-quadro': exportar('quadro'); break;
     case 'baixar-rel': exportar('html'); break;
     case 'baixar-unif': exportar('unifilar'); break;
@@ -2139,6 +2154,46 @@ function sheetMateriais() {
     <p class="note">Confira os quantitativos com o projeto executivo: o modelo considera rotas pela laje entre os pontos e uma caixa de passagem onde o eletroduto deriva.</p></div>`;
 }
 
+
+/* ---------- orçamento ---------- */
+const brl = (n) => (n == null || !isFinite(n) ? '—' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
+function orcAtual() { return E.orcamento(S.P, S.R); }
+function tabOrcamento(O, inter) {
+  const fonte = (l) => {
+    if (l.manual) return '<span class="pill ok">preço informado por você</span>';
+    if (!l.ref) return '<span class="pill erro">sem referência — informe o preço</span>';
+    const t = `${esc(l.ref.f)}${l.ref.d ? ' · ' + esc(l.ref.d) : ''}${l.ref.nota ? ' · ' + esc(l.ref.nota) : ''}`;
+    return inter && l.ref.url ? `<a href="${esc(l.ref.url)}" target="_blank" rel="noopener">${t}</a>` : t;
+  };
+  const preco = (l) => {
+    if (!inter) return brl(l.unit);
+    if (!l.pk) return brl(l.unit);
+    const ref = l.ref ? +(l.ref.v * (1 + (+O.op.ajuste || 0) / 100)).toFixed(2) : '';
+    return `<input class="orc-in" type="text" inputmode="decimal" data-preco="${esc(l.pk)}" value="${l.manual ? String(l.unit.toFixed(2)).replace('.', ',') : ''}" placeholder="${ref === '' ? 'R$' : ref.toFixed(2).replace('.', ',')}" aria-label="Preço unitário">`;
+  };
+  return `<div class="tw"><table class="orc"><thead><tr><th>Item</th><th class="n">Qtd.</th><th class="n">Preço un. (R$)</th><th class="n orc-tot">Total</th></tr></thead><tbody>${O.grupos.map((g) => `<tr><td colspan="4" style="background:var(--sheet-2)"><div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline"><span style="font-family:var(--f-display);font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:12.5px">${esc(g.n)}</span><b style="font-variant-numeric:tabular-nums;white-space:nowrap">${brl(g.total)}</b></div></td></tr>` + g.it.map((l) => `<tr><td>${esc(l.item)}<div class="orc-f">${fonte(l)}</div></td><td class="n">${ni(l.qtd)} ${esc(l.unid)}</td><td class="n">${preco(l)}<div class="orc-sub">${brl(l.total)}</div></td><td class="n orc-tot">${brl(l.total)}</td></tr>`).join('')).join('')}</tbody></table></div>`;
+}
+function resumoOrc(O) {
+  return `<dl class="kv"><dt>Materiais</dt><dd>${brl(O.material)}</dd>${O.op.mo ? `<dt>Mão de obra (${nf(O.op.mo, 0)} % sobre materiais)</dt><dd>${brl(O.mo)}</dd>` : ''}${O.op.bdi ? `<dt>BDI / lucro (${nf(O.op.bdi, 0)} %)</dt><dd>${brl(O.bdi)}</dd>` : ''}<dt><b>Total estimado</b></dt><dd><b>${brl(O.total)}</b></dd></dl>`;
+}
+function sheetOrcamento() {
+  const O = orcAtual();
+  const nMan = Object.keys(S.P.precos || {}).length;
+  const f = (lab, k, ph) => `<label class="field">${lab}<input type="number" inputmode="decimal" step="1" data-orc="${k}" value="${O.op[k] || ''}" placeholder="${ph}"></label>`;
+  return `<div class="doc">${cab('Orçamento de materiais · preços consultados em ' + E.PRECOS.consulta, 'Orçamento', 'Quantidades da lista de materiais × preços de referência pesquisados on-line. Toque no preço de qualquer item para trocar pelo valor da sua loja: o total se ajusta na hora.')}
+    <div class="kpis"><div class="kpi"><b>${brl(O.material)}</b><span>materiais</span></div>${O.op.mo || O.op.bdi ? `<div class="kpi"><b>${brl(O.total)}</b><span>total com mão de obra${O.op.bdi ? ' e BDI' : ''}</span></div>` : ''}<div class="kpi"><b>${O.linhas.length}</b><span>itens</span></div></div>
+    ${O.semPreco.length ? `<div class="warnbox">${O.semPreco.length} ${O.semPreco.length > 1 ? 'itens estão' : 'item está'} sem preço de referência e fora do total: informe o valor na tabela.</div>` : ''}
+    <div class="panel"><h2>Ajustes</h2><div class="fields">
+      ${f('Ajuste regional sobre os preços de referência (%)', 'ajuste', '0')}
+      ${f('Mão de obra (% sobre materiais)', 'mo', '0 — não incluída')}
+      ${f('BDI / lucro (%)', 'bdi', '0')}
+    </div><p class="note" style="margin-top:8px">O SINAPI é a tabela oficial da Caixa usada em orçamentos de obra; os valores são o custo médio nacional do material. Preço de balcão em loja costuma ser maior: use o ajuste regional para aproximar da sua cidade, ou digite o preço da sua loja item por item.</p></div>
+    <div class="row"><button class="btn pri" data-act="baixar-orc">Baixar orçamento (.csv)</button>${nMan ? `<button class="btn" data-act="orc-reset">Voltar aos preços de referência (${nMan} ${nMan > 1 ? 'alterados' : 'alterado'})</button>` : ''}</div>
+    ${tabOrcamento(O, true)}
+    <div class="panel">${resumoOrc(O)}</div>
+    <p class="note">Fonte: ${esc(E.PRECOS.fonte)} O padrão de entrada usa a composição SINAPI de entrada de energia (caixa, cabos, disjuntor, materiais e mão de obra) somada a um poste de concreto de 8 m; confira com o padrão exigido pela CPFL para a categoria. Preços mudam: peça para atualizar a pesquisa quando for fechar o orçamento.</p></div>`;
+}
+
 /* ---------- verificação ---------- */
 function listaIssues(inter) {
   const is = S.R.issues;
@@ -2167,8 +2222,9 @@ function relatorioBody(standalone) {
     <div class="panel"><h2>8. SPDA (NBR 5419:2026)</h2><p>${R.spda.semNg ? 'NG do município não informado: avaliação de risco pendente.' : `R1 estimado ${sci(R.spda.R1)} (tolerável 1×10⁻⁵): ${R.spda.necessario ? 'medidas adicionais necessárias' + (R.spda.rec ? ` — SPDA classe ${R.spda.rec.classe} com DPS NP ${R.spda.rec.dps}` : '') : 'dentro do tolerável'}. Pré-avaliação; análise formal pela NBR 5419-2:2026.`}</p></div>
     <div class="panel"><h2>9. Memorial de segurança (NR-10 10.3.9)</h2>${memorialNR10().replace('id="memoTxt"', '')}</div>
     <div><h2>10. Lista de materiais</h2>${tabMateriais()}</div>
-    <div><h2>11. Verificações</h2>${listaIssues(false)}</div>
-    <div class="panel"><h2>12. Responsabilidade técnica</h2><p>Este memorial foi gerado a partir do modelo do projeto e deve ser revisado e assinado pelo profissional habilitado, com a respectiva ART, antes da execução e do pedido de ligação à CPFL.</p><p style="margin-top:28px">_____________________________________<br>${esc(m.responsavel || 'Responsável técnico')}${m.registro ? ' — CREA ' + esc(m.registro) : ''}</p></div>`;
+    <div><h2>11. Orçamento estimado de materiais</h2>${(() => { const O = orcAtual(); return tabOrcamento(O, false) + '<div class="panel" style="margin-top:10px">' + resumoOrc(O) + '<p class="note">Preços de referência consultados em ' + E.PRECOS.consulta + ' (SINAPI 09/2026 e lojas on-line).</p></div>'; })()}</div>
+    <div><h2>12. Verificações</h2>${listaIssues(false)}</div>
+    <div class="panel"><h2>13. Responsabilidade técnica</h2><p>Este memorial foi gerado a partir do modelo do projeto e deve ser revisado e assinado pelo profissional habilitado, com a respectiva ART, antes da execução e do pedido de ligação à CPFL.</p><p style="margin-top:28px">_____________________________________<br>${esc(m.responsavel || 'Responsável técnico')}${m.registro ? ' — CREA ' + esc(m.registro) : ''}</p></div>`;
 }
 function sheetRelatorio() {
   return `<div class="doc"><div class="row" style="justify-content:flex-end"><button class="btn pri" data-act="baixar-rel">Baixar relatório (.html)</button></div>${relatorioBody(false)}</div>`;
@@ -2188,7 +2244,7 @@ td.n,th.n{text-align:right;font-family:var(--f-mono);white-space:nowrap}tfoot td
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(S.P.nome)} — Memorial técnico</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap"><style>${css}</style></head><body><div class="doc">${relatorioBody(true)}</div></body></html>`;
 }
 
-const SHEETS = { cargas: sheetCargas, quadro: sheetQuadro, unifilar: sheetUnifilar, entrada: sheetEntrada, spda: sheetSpda, nr10: sheetNr10, materiais: sheetMateriais, verificacao: sheetVerificacao, relatorio: sheetRelatorio };
+const SHEETS = { cargas: sheetCargas, quadro: sheetQuadro, unifilar: sheetUnifilar, entrada: sheetEntrada, spda: sheetSpda, nr10: sheetNr10, materiais: sheetMateriais, orcamento: sheetOrcamento, verificacao: sheetVerificacao, relatorio: sheetRelatorio };
 
 document.addEventListener('change', (e) => {
   const t = e.target;
@@ -2199,8 +2255,20 @@ document.addEventListener('change', (e) => {
     else if (!['classe', 'dps'].includes(k)) v = +v;
     mutate((P) => { P.spda[k] = v; });
   }
+  if (t.dataset && (t.dataset.preco || t.dataset.orc)) {
+    const k = t.dataset.preco || t.dataset.orc, isP = !!t.dataset.preco, raw = t.value;
+    // adia para depois do blur e devolve o foco ao campo que o usuário tocou em seguida
+    setTimeout(() => {
+      const ae = document.activeElement, sel = ae && ae.dataset && (ae.dataset.preco ? `[data-preco="${ae.dataset.preco}"]` : ae.dataset.orc ? `[data-orc="${ae.dataset.orc}"]` : null);
+      const idx = sel ? [...document.querySelectorAll(sel)].indexOf(ae) : -1;
+      if (isP) { const v = String(raw).trim().replace(/[R$\s]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'); mutate((P) => { P.precos = P.precos || {}; if (v === '' || !isFinite(+v) || +v < 0) delete P.precos[k]; else P.precos[k] = +(+v).toFixed(2); }); }
+      else { const v = raw === '' ? 0 : +String(raw).replace(',', '.'); mutate((P) => { P.orc = Object.assign({ ajuste: 0, mo: 0, bdi: 0 }, P.orc || {}); P.orc[k] = isFinite(v) ? v : 0; }); }
+      if (sel && idx >= 0) { const el = document.querySelectorAll(sel)[idx]; if (el) el.focus({ preventScroll: true }); }
+    }, 0);
+  }
   if (t.dataset && t.dataset.nr) { const id = E.nrKey(t.dataset.nr); const on = t.checked; mutate((P) => { if (on) P.nr10[id] = true; else delete P.nr10[id]; }); }
 });
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target && e.target.classList && e.target.classList.contains('orc-in')) e.target.blur(); });
 
 boot();
 })();

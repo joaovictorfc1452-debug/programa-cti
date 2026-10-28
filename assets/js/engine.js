@@ -184,7 +184,7 @@
       },
       amb: [], dev: [], eletr: [],
       spda: { ng: null, L: null, W: null, h: 4.5, cd: 0.5, ce: 0.1, ci: 1, ll: 1000, rt: 0.01, pta: 1, rp: 1, rf: 0.01, hz: 1, lt: 0.01, lf: 0.01, classe: 'nenhum', dps: 'II' },
-      nr10: {}
+      nr10: {}, precos: {}, orc: { ajuste: 0, mo: 0, bdi: 0 }
     };
   };
 
@@ -193,7 +193,7 @@
     P.meta = Object.assign({}, base.meta, P.meta || {});
     P.par = Object.assign({}, base.par, P.par || {});
     P.spda = Object.assign({}, base.spda, P.spda || {});
-    P.amb = P.amb || []; P.dev = P.dev || []; P.eletr = P.eletr || []; P.nr10 = P.nr10 || {};
+    P.amb = P.amb || []; P.dev = P.dev || []; P.eletr = P.eletr || []; P.nr10 = P.nr10 || {}; P.precos = P.precos || {}; P.orc = Object.assign({}, base.orc, P.orc || {});
     if (!P.id) P.id = base.id;
     return P;
   };
@@ -1171,7 +1171,7 @@
   function quantitativos(P, R) {
     const par = P.par;
     const itens = [];
-    const add = (grupo, item, unid, qtd, obs) => { if (qtd > 0) itens.push({ grupo, item, unid, qtd, obs: obs || '' }); };
+    const add = (grupo, item, unid, qtd, obs, pk) => { if (qtd > 0) itens.push({ grupo, item, unid, qtd, obs: obs || '', pk: pk || null }); };
     // cabos
     const cabos = {};
     const cab = (S, f, m) => { const k = S + '|' + f; cabos[k] = (cabos[k] || 0) + m; };
@@ -1188,7 +1188,7 @@
     cab(al.pe, 'Proteção PE (verde-amarelo)', Lal);
     for (const k of Object.keys(cabos).sort((a, b) => parseFloat(a) - parseFloat(b))) {
       const [S, f] = k.split('|');
-      add('Condutores', `Cabo flexível cobre 450/750 V ${String(S).replace('.', ',')} mm² — ${f}`, 'm', Math.ceil(cabos[k]));
+      add('Condutores', `Cabo flexível cobre 450/750 V ${String(S).replace('.', ',')} mm² — ${f}`, 'm', Math.ceil(cabos[k]), '', 'cabo:' + S);
     }
     // eletrodutos
     const ele = {};
@@ -1196,65 +1196,139 @@
     for (const d of R.descidas) { const k = d.el.dn; ele[k] = (ele[k] || 0) + d.L * d.k; }
     for (const dn of Object.keys(ele).sort((a, b) => a - b)) {
       const el = E.ELETRODUTOS.find((x) => x.dn === +dn);
-      add('Eletrodutos', `Eletroduto PVC corrugado DN ${dn} (${el.pol})`, 'm', Math.ceil(ele[dn] * (1 + par.sobra / 100)));
+      add('Eletrodutos', `Eletroduto PVC corrugado DN ${dn} (${el.pol})`, 'm', Math.ceil(ele[dn] * (1 + par.sobra / 100)), '', 'ele:' + dn);
     }
-    add('Eletrodutos', `Eletroduto do alimentador medição → QDC (dimensionar para ${al.fases + 2} cabos de ${String(al.S).replace('.', ',')} mm²)`, 'm', Math.ceil(Lal));
+    add('Eletrodutos', `Eletroduto do alimentador medição → QDC (dimensionar para ${al.fases + 2} cabos de ${String(al.S).replace('.', ',')} mm²)`, 'm', Math.ceil(Lal), '', 'ele:alim');
     // caixas e dispositivos
     const cont = (f) => P.dev.filter(f).length;
     const nParede = cont((d) => ['int1', 'int2', 'int3', 'tug', 'tue', 'arandela'].includes(d.k));
     const deg = {};
     for (const e of R.edges) { deg[e.a] = (deg[e.a] || 0) + 1; deg[e.b] = (deg[e.b] || 0) + 1; }
     const nPass = P.dev.filter((d) => !['luz', 'qdc', 'med', 'porta'].includes(d.k) && (deg[d.id] || 0) >= 2).length;
-    add('Caixas', 'Caixa de luz 4×2" PVC (parede)', 'un', nParede);
-    add('Caixas', 'Caixa octogonal 4×4" PVC (laje) — pontos de luz', 'un', cont((d) => d.k === 'luz'));
-    add('Caixas', 'Caixa octogonal 4×4" PVC (laje) — passagem/derivação', 'un', nPass);
-    add('Dispositivos', 'Interruptor simples 10 A 250 V', 'un', cont((d) => d.k === 'int1'));
-    add('Dispositivos', 'Interruptor paralelo 10 A 250 V', 'un', cont((d) => d.k === 'int2'));
-    add('Dispositivos', 'Interruptor intermediário 10 A 250 V', 'un', cont((d) => d.k === 'int3'));
+    add('Caixas', 'Caixa de luz 4×2" PVC (parede)', 'un', nParede, '', 'cx42');
+    add('Caixas', 'Caixa octogonal 4×4" PVC (laje) — pontos de luz', 'un', cont((d) => d.k === 'luz'), '', 'cx44');
+    add('Caixas', 'Caixa octogonal 4×4" PVC (laje) — passagem/derivação', 'un', nPass, '', 'cx44');
+    add('Dispositivos', 'Interruptor simples 10 A 250 V', 'un', cont((d) => d.k === 'int1'), '', 'int1');
+    add('Dispositivos', 'Interruptor paralelo 10 A 250 V', 'un', cont((d) => d.k === 'int2'), '', 'int2');
+    add('Dispositivos', 'Interruptor intermediário 10 A 250 V', 'un', cont((d) => d.k === 'int3'), '', 'int3');
     let t10 = 0, t20 = 0, tue20 = 0, direta = 0;
     for (const d of P.dev) {
       const rd = R.dev[d.id]; const c = R.circ.find((x) => x.id === rd.circ);
       if (d.k === 'tug') { if (c && c.disj > 10) t20++; else t10++; }
       if (d.k === 'tue') { const pr = E.TUE[d.tipo] || E.TUE.outro; if (pr.plug) tue20++; else direta++; }
     }
-    add('Dispositivos', 'Tomada 2P+T 10 A (NBR 14136)', 'un', t10);
-    add('Dispositivos', 'Tomada 2P+T 20 A (NBR 14136) — TUG em circuito com disjuntor > 10 A', 'un', t20);
-    add('Dispositivos', 'Tomada 2P+T 20 A (NBR 14136) — uso específico', 'un', tue20);
-    add('Dispositivos', 'Conector/borne para ligação direta de equipamento (chuveiro, ar, etc.)', 'un', direta);
-    add('Dispositivos', 'Placa 4×2" para interruptor/tomada', 'un', nParede);
-    add('Iluminação', 'Luminária/lâmpada LED — ponto de teto (potência conforme projeto luminotécnico)', 'un', cont((d) => d.k === 'luz'));
-    add('Iluminação', 'Arandela LED', 'un', cont((d) => d.k === 'arandela'));
+    add('Dispositivos', 'Tomada 2P+T 10 A (NBR 14136)', 'un', t10, '', 'tom10');
+    add('Dispositivos', 'Tomada 2P+T 20 A (NBR 14136) — TUG em circuito com disjuntor > 10 A', 'un', t20, '', 'tom20');
+    add('Dispositivos', 'Tomada 2P+T 20 A (NBR 14136) — uso específico', 'un', tue20, '', 'tom20');
+    add('Dispositivos', 'Conector/borne para ligação direta de equipamento (chuveiro, ar, etc.)', 'un', direta, '', 'borne');
+    add('Dispositivos', 'Placa 4×2" para interruptor/tomada', 'un', nParede, '', 'placa');
+    add('Iluminação', 'Luminária/lâmpada LED — ponto de teto (potência conforme projeto luminotécnico)', 'un', cont((d) => d.k === 'luz'), '', 'luz');
+    add('Iluminação', 'Arandela LED', 'un', cont((d) => d.k === 'arandela'), '', 'arandela');
     // proteção
     const disj = {};
     for (const c of R.circ) { const k = `${c.polos}|${c.disj}`; disj[k] = (disj[k] || 0) + 1; }
     for (const k of Object.keys(disj).sort((a, b) => { const [pa, ia] = a.split('|').map(Number), [pb, ib] = b.split('|').map(Number); return pa - pb || ia - ib; })) {
       const [p, i] = k.split('|');
-      add('Proteção (QDC)', `Disjuntor termomagnético DIN ${p}P curva ${par.curva} ${i} A, Icn ≥ 4,5 kA (confirmar Icc presumida)`, 'un', disj[k]);
+      add('Proteção (QDC)', `Disjuntor termomagnético DIN ${p}P curva ${par.curva} ${i} A, Icn ≥ 4,5 kA (confirmar Icc presumida)`, 'un', disj[k], '', `disj:${p}:${i}`);
     }
     const drs = {};
     for (const c of R.circ) if (c.dr) drs[c.drIn] = (drs[c.drIn] || 0) + 1;
-    for (const k of Object.keys(drs).sort((a, b) => a - b)) add('Proteção (QDC)', `Interruptor diferencial residual (IDR) 2P ${k} A, IΔn 30 mA`, 'un', drs[k]);
-    add('Proteção (QDC)', `Disjuntor geral do QDC ${R.entrada.fases}P ${al.inQD} A`, 'un', 1);
-    if (par.dpsQd) add('Proteção (QDC)', 'DPS classe II, Uc 175 V, In ≥ 5 kA, Imáx ≥ 12 kA, Up ≤ 1,5 kV (fases e neutro)', 'un', R.entrada.fases + 1);
-    add('Quadro', `Quadro de distribuição de embutir ${R.quadro.tamanho} módulos DIN, barramentos de fase, neutro e terra`, 'un', 1);
+    for (const k of Object.keys(drs).sort((a, b) => a - b)) add('Proteção (QDC)', `Interruptor diferencial residual (IDR) 2P ${k} A, IΔn 30 mA`, 'un', drs[k], '', 'idr:' + k);
+    add('Proteção (QDC)', `Disjuntor geral do QDC ${R.entrada.fases}P ${al.inQD} A`, 'un', 1, '', `disj:${R.entrada.fases}:${al.inQD}`);
+    if (par.dpsQd) add('Proteção (QDC)', 'DPS classe II, Uc 175 V, In ≥ 5 kA, Imáx ≥ 12 kA, Up ≤ 1,5 kV (fases e neutro)', 'un', R.entrada.fases + 1, '', 'dps2');
+    add('Quadro', `Quadro de distribuição de embutir ${R.quadro.tamanho} módulos DIN, barramentos de fase, neutro e terra`, 'un', 1, '', 'qd:' + R.quadro.tamanho);
     // padrão de entrada
     const G = E.GED.dps;
-    add('Padrão de entrada (GED-13)', `Disjuntor termomagnético geral ${R.entrada.fases}P ${al.inPadrao} A, Icn ≥ ${E.GED.icnKA} kA, classe 250 V`, 'un', 1);
-    add('Padrão de entrada (GED-13)', `DPS classe ${G.classe}, ${G.uc} V, In ≥ ${G.inKA} kA, Imáx ≥ ${G.imaxKA} kA, Up ≤ ${String(G.upKV).replace('.', ',')} kV, com indicador de estado`, 'un', R.entrada.fases);
-    add('Padrão de entrada (GED-13)', `Poste, caixa de medição, ramal de entrada e aterramento — categoria ${R.entrada.cat.c} (Tabela 1A)`, 'cj', 1);
-    add('Aterramento', 'Haste de aterramento aço-cobre (padrão de entrada, GED-13 Desenho 12)', 'un', 1);
-    add('Aterramento', 'Barramento de equipotencialização principal (BEP)', 'un', 1);
+    add('Padrão de entrada (GED-13)', `Disjuntor termomagnético geral ${R.entrada.fases}P ${al.inPadrao} A, Icn ≥ ${E.GED.icnKA} kA, classe 250 V`, 'un', 1, '', `disj:${R.entrada.fases}:${al.inPadrao}`);
+    add('Padrão de entrada (GED-13)', `DPS classe ${G.classe}, ${G.uc} V, In ≥ ${G.inKA} kA, Imáx ≥ ${G.imaxKA} kA, Up ≤ ${String(G.upKV).replace('.', ',')} kV, com indicador de estado`, 'un', R.entrada.fases, '', 'dps2');
+    add('Padrão de entrada (GED-13)', `Poste, caixa de medição, ramal de entrada e aterramento — categoria ${R.entrada.cat.c} (Tabela 1A)`, 'cj', 1, '', 'padrao:' + R.entrada.cat.c);
+    add('Aterramento', 'Haste de aterramento aço-cobre (padrão de entrada, GED-13 Desenho 12)', 'un', 1, '', 'haste');
+    add('Aterramento', 'Barramento de equipotencialização principal (BEP)', 'un', 1, '', 'bep');
     // SPDA
     const sp = R.spda;
     if (sp.geo) {
-      add('SPDA (NBR 5419-3)', `Condutor de captação em malha ${sp.geo.malha}×${sp.geo.malha} m (cobre 35 mm² ou equivalente)`, 'm', Math.ceil(sp.geo.captacao));
-      add('SPDA (NBR 5419-3)', `Descidas (${sp.geo.nDesc} un, espaçamento ≤ ${sp.geo.espDesc} m)`, 'm', Math.ceil(sp.geo.descidas));
-      add('SPDA (NBR 5419-3)', 'Anel de aterramento a ~1 m das fundações (cobre nu 50 mm² ou equivalente)', 'm', Math.ceil(sp.geo.anel));
-      add('SPDA (NBR 5419-3)', 'Caixa de inspeção e conector de medição nas descidas', 'un', sp.geo.nDesc);
-      add('SPDA (NBR 5419-4)', 'DPS classe I na entrada da linha (coordenado com o classe II)', 'un', R.entrada.fases + 1);
+      add('SPDA (NBR 5419-3)', `Condutor de captação em malha ${sp.geo.malha}×${sp.geo.malha} m (cobre 35 mm² ou equivalente)`, 'm', Math.ceil(sp.geo.captacao), '', 'nu:35');
+      add('SPDA (NBR 5419-3)', `Descidas (${sp.geo.nDesc} un, espaçamento ≤ ${sp.geo.espDesc} m)`, 'm', Math.ceil(sp.geo.descidas), '', 'nu:35');
+      add('SPDA (NBR 5419-3)', 'Anel de aterramento a ~1 m das fundações (cobre nu 50 mm² ou equivalente)', 'm', Math.ceil(sp.geo.anel), '', 'nu:50');
+      add('SPDA (NBR 5419-3)', 'Caixa de inspeção e conector de medição nas descidas', 'un', sp.geo.nDesc, '', 'cxinsp');
+      add('SPDA (NBR 5419-4)', 'DPS classe I na entrada da linha (coordenado com o classe II)', 'un', R.entrada.fases + 1, '', 'dps1');
     }
     return itens;
   }
+
+
+  /* ------------------------------------------------------------------ */
+  /* Preços de referência (orçamento)                                     */
+  /* SINAPI = custo de insumo, média nacional, Caixa — consultado em       */
+  /* orcamentor.com em 28/10/2026 (referência 09/2026 salvo indicação).    */
+  /* Lojas = preço de varejo na data da consulta.                          */
+  /* ------------------------------------------------------------------ */
+  const SIN = (cod, v, d) => ({ v, f: 'SINAPI ' + cod, d: d || '09/2026', url: 'https://orcamentor.com/insumo/' + cod + '/' });
+  const SINC = (cod, v, d) => ({ v, f: 'SINAPI comp. ' + cod, d: d || '09/2026', url: 'https://orcamentor.com/composicao/' + cod + '/' });
+  E.PRECOS = {
+    consulta: '28/10/2026',
+    fonte: 'SINAPI (Caixa) 09/2026 — custo médio nacional de insumos, via orcamentor.com; itens sem código SINAPI com preço de loja on-line.',
+    cabo: { 1.5: SIN(1013, 1.73), 2.5: SIN(1014, 2.74), 4: SIN(981, 4.55), 6: SIN(982, 6.54), 10: SIN(980, 12.50), 16: SIN(979, 17.86), 25: SIN(39232, 27.97), 35: SIN(39233, 40.76) },
+    ele: { 20: SIN(39243, 2.72), 25: SIN(39244, 3.68), 32: SIN(39245, 7.08), 40: Object.assign(SIN(12070, 5.76), { nota: 'referência: eletroduto PVC rígido 40 mm' }) },
+    item: {
+      cx42: SIN(1872, 2.01), cx44: SIN(12001, 5.20),
+      int1: SIN(38062, 6.79), int2: SIN(38063, 9.25), int3: SIN(38065, 27.20),
+      tom10: SIN(7528, 8.85), tom20: SIN(38075, 15.33),
+      placa: { v: 0, f: 'incluída', d: '', nota: 'placa já incluída nos conjuntos montados de interruptor/tomada' },
+      borne: { v: 14.97, f: 'Casas Bahia (Wago 221-612, kit 3 un R$ 44,90)', d: '10/2026', url: 'https://www.casasbahia.com.br/kit-c-3-conector-p-chuveiro-2p-221-612-41a-450v-wago/p/1571658770' },
+      luz: Object.assign(SIN(39385, 9.07), { nota: 'plafon LED 12/13 W de sobrepor' }),
+      arandela: Object.assign(SIN(38769, 50.11), { nota: 'arandela E27, sem lâmpada' }),
+      dps2: SIN(39465, 62.40),
+      haste: { v: 79.39, f: 'SINAPI 3380 + 425', d: '09/2026', url: 'https://orcamentor.com/insumo/3380/', nota: 'haste aço-cobre 5/8" × 3 m (R$ 72,73) + grampo (R$ 6,66)' },
+      bep: { v: 49.90, f: 'Telhanorte (barramento terra Steck 11 terminais)', d: '10/2026', url: 'https://www.telhanorte.com.br/barramento-terra-11-terminais-89mm-verde-steck-1597841/p' },
+      cxinsp: SIN(41480, 58.92, '07/2026'),
+      'nu:35': SIN(863, 45.39), 'nu:50': SIN(867, 64.66)
+    },
+    // disjuntores: [polos, até In, preço]
+    disj: [
+      [1, 32, SIN(34653, 8.34)], [1, 50, SIN(34686, 12.36)], [1, 63, SIN(34688, 15.11)],
+      [2, 32, SIN(34616, 47.80)], [2, 50, SIN(34623, 47.06)], [2, 63, SIN(34628, 67.41)], [2, 100, Object.assign(SIN(34606, 89.98, '07/2026'), { nota: 'referência: disjuntor NEMA bipolar 60–100 A' })],
+      [3, 50, SIN(34709, 58.56)], [3, 63, SIN(34714, 69.94)], [3, 100, Object.assign(SIN(2373, 102.14), { nota: 'referência: disjuntor NEMA tripolar 60–100 A' })], [3, 125, SIN(2391, 319.44)]
+    ],
+    idr: { 25: SIN(39445, 128.40), 40: SIN(39446, 130.68), 63: SIN(39447, 139.75), 80: SIN(39448, 240.50, '07/2026'), 100: SIN(39459, 258.09, '07/2026') },
+    qd: [[16, SIN(39805, 135.64)], [24, SIN(39806, 251.30)], [36, SIN(39807, 544.63)], [48, SIN(43100, 425.79)]],
+    // padrão de entrada: composição SINAPI (sem poste) + poste duplo T 8 m 150 daN (insumo 41195, R$ 560,37)
+    padrao: {
+      1: { v: 1996.84 + 560.37, f: 'SINAPI comp. 101490 + insumo 41195', d: '09/2026', url: 'https://orcamentor.com/composicao/101490/', nota: 'entrada aérea monofásica (caixa, cabo 16 mm², disjuntor, materiais e mão de obra) + poste de concreto 8 m' },
+      2: { v: 2335.43 + 560.37, f: 'SINAPI comp. 101498 + insumo 41195', d: '09/2026', url: 'https://orcamentor.com/composicao/101498/', nota: 'entrada aérea bifásica (caixa, cabo 16 mm², disjuntor, materiais e mão de obra) + poste de concreto 8 m' },
+      3: { v: 2545.31 + 560.37, f: 'SINAPI comp. 101506 + insumo 41195', d: '09/2026', url: 'https://orcamentor.com/composicao/101506/', nota: 'entrada aérea trifásica, cabo 16 mm², + poste de concreto 8 m' },
+      '3g': { v: 2914.76 + 560.37, f: 'SINAPI comp. 101508 + insumo 41195', d: '09/2026', url: 'https://orcamentor.com/composicao/101508/', nota: 'entrada aérea trifásica, cabo 35 mm², + poste de concreto 8 m' }
+    }
+  };
+  E.precoRef = function (pk) {
+    const T = E.PRECOS;
+    if (!pk) return null;
+    const [k, a, b] = String(pk).split(':');
+    if (k === 'cabo') return T.cabo[+a] || null;
+    if (k === 'ele') return a === 'alim' ? T.ele[32] : (T.ele[+a] || null);
+    if (k === 'disj') { const r = T.disj.find((x) => x[0] === +a && +b <= x[1]); return r ? r[2] : null; }
+    if (k === 'idr') return T.idr[+a] || null;
+    if (k === 'qd') { const r = T.qd.find((x) => +a <= x[0]); return r ? r[1] : null; }
+    if (k === 'padrao') { const c = E.GED.cat.find((x) => x.c === a); if (!c) return null; return c.fases < 3 ? T.padrao[c.fases] : (c.dMax > 38 ? T.padrao['3g'] : T.padrao[3]); }
+    if (k === 'nu') return T.item['nu:' + a] || null;
+    return T.item[k] || null;
+  };
+  E.orcamento = function (P, R) {
+    const o = Object.assign({ ajuste: 0, mo: 0, bdi: 0 }, P.orc || {});
+    const fator = 1 + (+o.ajuste || 0) / 100;
+    const linhas = R.bom.map((b) => {
+      const ref = E.precoRef(b.pk);
+      const man = b.pk && P.precos && P.precos[b.pk] != null ? +P.precos[b.pk] : null;
+      const unit = man != null ? man : ref ? +(ref.v * fator).toFixed(2) : null;
+      return Object.assign({}, b, { ref, manual: man != null, unit, total: unit != null ? +(unit * b.qtd).toFixed(2) : null });
+    });
+    const material = linhas.reduce((s, l) => s + (l.total || 0), 0);
+    const mo = material * (+o.mo || 0) / 100;
+    const bdi = (material + mo) * (+o.bdi || 0) / 100;
+    const grupos = [];
+    for (const l of linhas) { let g = grupos.find((x) => x.n === l.grupo); if (!g) { g = { n: l.grupo, total: 0, it: [] }; grupos.push(g); } g.it.push(l); g.total += l.total || 0; }
+    return { linhas, grupos, material, mo, bdi, total: material + mo + bdi, semPreco: linhas.filter((l) => l.unit == null), op: o };
+  };
 
   /* ------------------------------------------------------------------ */
   /* Projeto exemplo — residência térrea, 2 dormitórios                    */
