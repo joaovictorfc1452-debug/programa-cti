@@ -1577,9 +1577,22 @@ function render3dView() {
   render3dInsp();
   requestAnimationFrame(() => { resize3d(); build3d(); frame3d(); });
 }
+function telaCheia(on) {
+  const c = $('#c3'); if (!c) return;
+  V3.full = on == null ? !V3.full : on;
+  c.classList.toggle('c3-full', V3.full);
+  document.body.classList.toggle('sem-rolagem', V3.full);
+  const de = document.documentElement;
+  try {
+    if (V3.full && de.requestFullscreen && !document.fullscreenElement) de.requestFullscreen().catch(() => {});
+    if (!V3.full && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  } catch (e) { /* navegador sem tela cheia nativa (iPhone): fica a tela cheia da página */ }
+  renderModoChip();
+  requestAnimationFrame(() => { resize3d(); setTimeout(resize3d, 250); });
+}
 function renderModoChip() {
   const m = $('#c3 .modo3'); if (!m) return;
-  m.innerHTML = `<button data-modo="orbita" aria-pressed="${V3.modo !== 'pessoa'}">3ª pessoa</button><button data-modo="pessoa" aria-pressed="${V3.modo === 'pessoa'}">1ª pessoa</button>${V3.modo !== 'pessoa' ? '<button data-centro="1" title="Voltar a casa inteira para o centro da tela">⌖ Centralizar</button>' : ''}`;
+  m.innerHTML = `<button data-modo="orbita" aria-pressed="${V3.modo !== 'pessoa'}">3ª pessoa</button><button data-modo="pessoa" aria-pressed="${V3.modo === 'pessoa'}">1ª pessoa</button>${V3.modo !== 'pessoa' ? '<button data-centro="1" title="Voltar a casa inteira para o centro da tela">⌖ Centralizar</button>' : ''}<button data-tela="1" title="${V3.full ? 'Sair da tela cheia' : 'Ver em tela cheia'}">${V3.full ? '✕ Sair' : '⛶ Tela cheia'}</button>`;
 }
 function render3dInsp() {
   renderModoChip();
@@ -1665,7 +1678,9 @@ function bind3d() {
     frame3d();
   }, { passive: false });
   c.addEventListener('contextmenu', (e) => e.preventDefault());
-  c.addEventListener('click', (e) => { const m = e.target.closest('[data-modo]'); if (m) setModo3d(m.dataset.modo); if (e.target.closest('[data-centro]')) { enquadrar3d(); frame3d(); } });
+  c.addEventListener('click', (e) => { const m = e.target.closest('[data-modo]'); if (m) setModo3d(m.dataset.modo); if (e.target.closest('[data-centro]')) { enquadrar3d(); frame3d(); } if (e.target.closest('[data-tela]')) telaCheia(); });
+  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && V3.full) telaCheia(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && V3.full) telaCheia(false); });
   const TECLAS = { w: 'f', arrowup: 'f', s: 'b', arrowdown: 'b', a: 'l', arrowleft: 'l', d: 'r', arrowright: 'r', q: 'vl', e: 'vr' };
   document.addEventListener('keydown', (e) => {
     if (S.view !== 'vista-3d' || e.ctrlKey || e.metaKey || e.altKey) return;
