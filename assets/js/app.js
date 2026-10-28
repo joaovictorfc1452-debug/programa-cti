@@ -1260,7 +1260,7 @@ function planSVGStatic(standalone) {
 }
 
 /* ===================== vista 3D (mesmo modelo) ===================== */
-const V3 = { ok: null, r: null, scene: null, cam: null, grp: null, tgt: null, th: -2.2, ph: 0.92, dist: 18, paredes: 'meia', eletr: true, pick: [], drag: null, ptrs: new Map(), lastKey: null };
+const V3 = { ok: null, r: null, scene: null, cam: null, grp: null, tgt: null, th: -2.2, ph: 0.92, dist: 18, paredes: 'meia', eletr: true, pick: [], drag: null, ptrs: new Map(), lastKey: null, modo: 'orbita', eu: { x: 0, z: 0 }, yaw: 0, pitch: 0, colisao: true, mv: new Set(), raf: null, last: null, rapido: false, walls: [], ambEu: null };
 const cssVar = (n) => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim() || '#888888';
 
 function init3d() {
@@ -1283,13 +1283,6 @@ function resize3d() {
   if (!V3.ok) return;
   const c = $('#c3'); const w = Math.max(50, c.clientWidth), h = Math.max(50, c.clientHeight);
   V3.r.setSize(w, h, false); V3.cam.aspect = w / h; V3.cam.updateProjectionMatrix(); frame3d();
-}
-function frame3d() {
-  if (!V3.ok) return;
-  const t = V3.tgt, r = V3.dist;
-  V3.cam.position.set(t.x + r * Math.sin(V3.ph) * Math.cos(V3.th), t.y + r * Math.cos(V3.ph), t.z + r * Math.sin(V3.ph) * Math.sin(V3.th));
-  V3.cam.lookAt(t);
-  V3.r.render(V3.scene, V3.cam);
 }
 function enquadrar3d() {
   const b = bboxModelo(S.P);
@@ -1346,13 +1339,15 @@ function build3d() {
     m.position.set(a.x + a.w / 2, -0.03, a.y + a.h / 2); m.userData.sel = { t: 'amb', id: a.id }; g.add(m); V3.pick.push(m);
   }
   // paredes
-  if (V3.paredes !== 'oculta') {
+  V3.walls = wallSegs(P).filter((w) => !w.verga);
+  const PW = paredesEfetivas();
+  if (PW !== 'oculta') {
     const wm = mat(cssVar('--rule')), em = new T.LineBasicMaterial({ color: new T.Color(cssVar('--ink-3')) });
     const t = 0.12;
     for (const s of wallSegs(P)) {
-      const H = V3.paredes === 'meia' ? Math.min(1.2, s.pd) : s.pd;
+      const H = PW === 'meia' ? Math.min(1.2, s.pd) : s.pd;
       let y0 = 0, hh = H;
-      if (s.verga) { if (V3.paredes === 'meia' || s.pd <= 2.1) continue; y0 = 2.1; hh = s.pd - 2.1; }
+      if (s.verga) { if (PW === 'meia' || s.pd <= 2.1) continue; y0 = 2.1; hh = s.pd - 2.1; }
       const ext0 = s.ini ? t / 2 : 0, ext1 = s.fim ? t / 2 : 0;
       const L = s.b - s.a + ext0 + ext1; if (L < 0.01) continue;
       const geo = s.o === 'h' ? new T.BoxGeometry(L, hh, t) : new T.BoxGeometry(t, hh, L);
@@ -1426,6 +1421,72 @@ function build3d() {
   }
   V3.scene.add(g);
 }
+/* ---------- câmera: órbita (3ª pessoa) e caminhada (1ª pessoa) ---------- */
+const OLHO = 1.6, RAIO_CORPO = 0.22;
+function paredesEfetivas() { return V3.modo === 'pessoa' ? 'cheia' : V3.paredes; }
+function bloqueado(x, z) {
+  if (!V3.colisao || V3.modo !== 'pessoa') return false;
+  for (const s of V3.walls || []) {
+    if (s.o === 'h') { if (Math.abs(z - s.c) < RAIO_CORPO && x > s.a - 0.06 && x < s.b + 0.06) return true; }
+    else if (Math.abs(x - s.c) < RAIO_CORPO && z > s.a - 0.06 && z < s.b + 0.06) return true;
+  }
+  return false;
+}
+function mover3d(frente, lado) {
+  // frente/lado em metros; direção conforme o modo
+  let fx, fz;
+  if (V3.modo === 'pessoa') { fx = Math.cos(V3.yaw); fz = Math.sin(V3.yaw); }
+  else { fx = -Math.cos(V3.th); fz = -Math.sin(V3.th); }
+  const lx = -fz, lz = fx;
+  const dx = fx * frente + lx * lado, dz = fz * frente + lz * lado;
+  if (V3.modo === 'pessoa') {
+    const p = V3.eu;
+    if (!bloqueado(p.x + dx, p.z)) p.x += dx;
+    if (!bloqueado(p.x, p.z + dz)) p.z += dz;
+  } else { V3.tgt.x += dx; V3.tgt.z += dz; }
+}
+function frame3d() {
+  if (!V3.ok) return;
+  if (V3.modo === 'pessoa') {
+    const p = V3.eu, cp = Math.cos(V3.pitch);
+    V3.cam.position.set(p.x, OLHO, p.z);
+    V3.cam.lookAt(p.x + cp * Math.cos(V3.yaw), OLHO + Math.sin(V3.pitch), p.z + cp * Math.sin(V3.yaw));
+  } else {
+    const t = V3.tgt, r = V3.dist;
+    V3.cam.position.set(t.x + r * Math.sin(V3.ph) * Math.cos(V3.th), t.y + r * Math.cos(V3.ph), t.z + r * Math.sin(V3.ph) * Math.sin(V3.th));
+    V3.cam.lookAt(t);
+  }
+  V3.r.render(V3.scene, V3.cam);
+}
+function setModo3d(m, ambId) {
+  V3.modo = m;
+  V3.cam.fov = m === 'pessoa' ? 70 : 42; V3.cam.updateProjectionMatrix();
+  if (m === 'pessoa') {
+    let a = ambId ? ambById(ambId) : (S.sel && S.sel.t === 'amb' ? ambById(S.sel.id) : null);
+    if (!a) a = [...S.P.amb].sort((p, q) => q.w * q.h - p.w * p.h)[0];
+    if (a) { V3.eu = { x: a.x + a.w / 2, z: a.y + a.h / 2 }; V3.yaw = a.w >= a.h ? 0 : Math.PI / 2; }
+    else V3.eu = { x: 0, z: 0 };
+    V3.pitch = 0; V3.ambEu = a ? a.id : null;
+  }
+  build3d(); frame3d(); render3dInsp();
+}
+// laço de movimento enquanto uma tecla ou botão de direção está pressionado
+function loop3d(ts) {
+  if (!V3.mv.size || S.view !== 'vista-3d') { V3.raf = null; V3.last = null; return; }
+  const dt = V3.last ? Math.min(0.05, (ts - V3.last) / 1000) : 0.016; V3.last = ts;
+  const vel = (V3.modo === 'pessoa' ? 1.6 : Math.max(2, V3.dist * 0.35)) * (V3.rapido ? 2.2 : 1) * dt;
+  let f = 0, l = 0;
+  if (V3.mv.has('f')) f += 1; if (V3.mv.has('b')) f -= 1;
+  if (V3.mv.has('l')) l -= 1; if (V3.mv.has('r')) l += 1;
+  if (V3.mv.has('vl')) { if (V3.modo === 'pessoa') V3.yaw -= 1.6 * dt; else V3.th -= 1.4 * dt; }
+  if (V3.mv.has('vr')) { if (V3.modo === 'pessoa') V3.yaw += 1.6 * dt; else V3.th += 1.4 * dt; }
+  if (f || l) mover3d(f * vel, l * vel);
+  frame3d();
+  V3.raf = requestAnimationFrame(loop3d);
+}
+function startMv(k) { V3.mv.add(k); if (!V3.raf) V3.raf = requestAnimationFrame(loop3d); }
+function stopMv(k) { if (k) V3.mv.delete(k); else V3.mv.clear(); }
+
 function render3dView() {
   const c = $('#c3');
   if (!init3d()) {
@@ -1433,10 +1494,26 @@ function render3dView() {
     render3dInsp(); return;
   }
   if (!c.contains(V3.r.domElement)) { c.innerHTML = ''; c.appendChild(V3.r.domElement); }
+  if (!c.querySelector('.pad3')) {
+    const pad = document.createElement('div');
+    pad.className = 'pad3';
+    pad.innerHTML = `<button data-mv="vl" aria-label="Virar à esquerda">⟲</button><button data-mv="f" aria-label="Andar para frente">▲</button><button data-mv="vr" aria-label="Virar à direita">⟳</button>
+      <button data-mv="l" aria-label="Deslizar para a esquerda">◀</button><button data-mv="b" aria-label="Andar para trás">▼</button><button data-mv="r" aria-label="Deslizar para a direita">▶</button>`;
+    c.appendChild(pad);
+    const modo = document.createElement('div');
+    modo.className = 'modo3 seg';
+    c.appendChild(modo);
+  }
+  renderModoChip();
   render3dInsp();
   requestAnimationFrame(() => { resize3d(); build3d(); frame3d(); });
 }
+function renderModoChip() {
+  const m = $('#c3 .modo3'); if (!m) return;
+  m.innerHTML = `<button data-modo="orbita" aria-pressed="${V3.modo !== 'pessoa'}">3ª pessoa</button><button data-modo="pessoa" aria-pressed="${V3.modo === 'pessoa'}">1ª pessoa</button>`;
+}
 function render3dInsp() {
+  renderModoChip();
   const el = $('#insp3'); if (!el) return;
   const s = S.sel;
   let selTxt = '<p class="note">Clique num elemento para ver os dados dele.</p>';
@@ -1447,45 +1524,92 @@ function render3dInsp() {
     const a = ambById(s.id), ra = S.R.amb[s.id];
     if (a) selTxt = `<div><b>${esc(a.nome)}</b><div class="ifc">IfcSpace</div></div><dl class="kv"><dt>Área</dt><dd>${nf(ra.area, 2)} m²</dd><dt>Pé-direito</dt><dd>${nf(ra.pd, 2)} m</dd><dt>Pontos</dt><dd>${ra.nLuz} luz · ${ra.nTug} TUG · ${ra.nTue} TUE</dd></dl><div class="row"><button class="btn" data-act="ir" data-tipo="amb" data-id="${a.id}">Editar na planta</button></div>`;
   }
+  const pessoa = V3.modo === 'pessoa';
+  const modoUI = pessoa
+    ? `<div><h3>Caminhar (1ª pessoa)</h3><div class="form"><label for="f3-amb">Ir para</label><select id="f3-amb">${S.P.amb.map((a) => `<option value="${a.id}"${a.id === V3.ambEu ? ' selected' : ''}>${esc(a.nome)}</option>`).join('')}</select>
+        <label for="f3-col">Paredes bloqueiam</label><input id="f3-col" type="checkbox"${V3.colisao ? ' checked' : ''}></div>
+        <p class="note" style="margin-top:6px">Olhos a 1,60 m do piso. Arraste para olhar em volta. Ande com W A S D ou as setas (Shift corre), a roda do mouse ou os botões na tela. As portas deixam passar.</p></div>`
+    : `<div><h3>Paredes</h3><div class="seg">${[['cheia', 'Inteiras'], ['meia', 'Cortadas a 1,20 m'], ['oculta', 'Ocultas']].map(([k, n]) => `<button data-p3="${k}" aria-pressed="${V3.paredes === k}">${n}</button>`).join('')}</div></div>
+      <div><h3>Câmera</h3><div class="seg"><button data-cam="iso">Isométrica</button><button data-cam="topo">Topo</button><button data-cam="frente">Frente</button></div><p class="note" style="margin-top:6px">Arraste para girar. Deslize pelo ambiente com W A S D ou as setas, Shift + arrastar, botão direito, dois dedos ou os botões na tela. Roda ou pinça aproxima.</p></div>`;
   el.innerHTML = `<div><h2>Vista 3D</h2><div class="ifc">gerada do mesmo modelo da planta</div></div>
-    <div><h3>Paredes</h3><div class="seg">${[['cheia', 'Inteiras'], ['meia', 'Cortadas a 1,20 m'], ['oculta', 'Ocultas']].map(([k, n]) => `<button data-p3="${k}" aria-pressed="${V3.paredes === k}">${n}</button>`).join('')}</div></div>
+    <div><h3>Modo</h3><div class="seg"><button data-modo="orbita" aria-pressed="${!pessoa}">3ª pessoa (órbita)</button><button data-modo="pessoa" aria-pressed="${pessoa}">1ª pessoa (caminhar)</button></div></div>
+    ${modoUI}
     <div><h3>Exibir</h3><div class="seg"><button data-t3="eletr" aria-pressed="${V3.eletr}">Eletrodutos</button><button data-t3="cores" aria-pressed="${S.layers.cores}">Cores por circuito</button></div></div>
-    <div><h3>Câmera</h3><div class="seg"><button data-cam="iso">Isométrica</button><button data-cam="topo">Topo</button><button data-cam="frente">Frente</button></div><p class="note" style="margin-top:6px">Arraste para girar · Shift ou botão direito para deslocar · role ou pince para aproximar.</p></div>
     <div><h3>Seleção</h3>${selTxt}</div>
     <div><h3>Destacar circuito</h3><div class="legend">${S.R.circ.map((c) => `<button data-act="hicirc3" data-id="${c.id}" aria-pressed="${S.hiCirc === c.id}"><span class="sw" style="background:${corCirc(c.id)}"></span><span class="cid">${c.id}</span><span class="cds">${esc(c.desc)}</span><span class="cva">${ni(c.va)}</span></button>`).join('')}</div></div>`;
 }
 function bind3d() {
   const c = $('#c3');
   c.addEventListener('pointerdown', (e) => {
+    const mvb = e.target.closest('[data-mv]');
+    if (mvb) { e.preventDefault(); try { mvb.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } startMv(mvb.dataset.mv); mvb.classList.add('on'); return; }
+    if (e.target.closest('.pad3, .modo3')) return;
     try { c.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
     V3.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (V3.ptrs.size === 2) { const [a, b] = [...V3.ptrs.values()]; V3.drag = { mode: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y), r0: V3.dist }; return; }
+    if (V3.ptrs.size === 2) {
+      const [a, b] = [...V3.ptrs.values()];
+      V3.drag = { mode: 'two', d0: Math.hypot(a.x - b.x, a.y - b.y), r0: V3.dist, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+      return;
+    }
     V3.drag = { mode: e.button === 2 || e.shiftKey ? 'pan' : 'rot', x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY };
   });
   c.addEventListener('pointermove', (e) => {
     if (!V3.drag || !V3.ok) return;
     if (V3.ptrs.has(e.pointerId)) V3.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const dr = V3.drag;
-    if (dr.mode === 'pinch') { if (V3.ptrs.size < 2) return; const [a, b] = [...V3.ptrs.values()]; V3.dist = Math.max(3, Math.min(150, dr.r0 * dr.d0 / Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)))); frame3d(); return; }
-    const dx = e.clientX - dr.x, dy = e.clientY - dr.y; dr.x = e.clientX; dr.y = e.clientY;
-    if (dr.mode === 'rot') { V3.th += dx * 0.008; V3.ph = Math.max(0.06, Math.min(1.52, V3.ph - dy * 0.008)); }
-    else {
-      const k = V3.dist * 0.0016;
-      const fx = Math.cos(V3.th), fz = Math.sin(V3.th);
-      V3.tgt.x += (-dx * fz - dy * fx) * k; V3.tgt.z += (dx * fx - dy * fz) * k;
+    if (dr.mode === 'two') {
+      if (V3.ptrs.size < 2) return;
+      const [a, b] = [...V3.ptrs.values()];
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, ddx = mx - dr.mx, ddy = my - dr.my; dr.mx = mx; dr.my = my;
+      if (V3.modo === 'pessoa') mover3d(ddy * 0.012, -ddx * 0.012);
+      else {
+        V3.dist = Math.max(3, Math.min(150, dr.r0 * dr.d0 / Math.max(10, Math.hypot(a.x - b.x, a.y - b.y))));
+        const k = V3.dist * 0.0016; mover3d(ddy * k, -ddx * k);
+      }
+      frame3d(); return;
     }
+    const dx = e.clientX - dr.x, dy = e.clientY - dr.y; dr.x = e.clientX; dr.y = e.clientY;
+    if (V3.modo === 'pessoa') {
+      if (dr.mode === 'pan') mover3d(dy * 0.012, -dx * 0.012);
+      else { V3.yaw += dx * 0.005; V3.pitch = Math.max(-1.2, Math.min(1.2, V3.pitch - dy * 0.005)); }
+    } else if (dr.mode === 'rot') { V3.th += dx * 0.008; V3.ph = Math.max(0.06, Math.min(1.52, V3.ph - dy * 0.008)); }
+    else { const k = V3.dist * 0.0016; mover3d(dy * k, -dx * k); }
     frame3d();
   });
   const up = (e) => {
+    const mvb = e.target.closest && e.target.closest('[data-mv]');
+    if (mvb) { stopMv(mvb.dataset.mv); mvb.classList.remove('on'); return; }
     V3.ptrs.delete(e.pointerId);
     const dr = V3.drag;
-    if (dr && dr.mode !== 'pinch' && Math.hypot(e.clientX - dr.sx, e.clientY - dr.sy) < 4 && V3.ok) pick3d(e);
+    if (dr && dr.mode !== 'two' && Math.hypot(e.clientX - dr.sx, e.clientY - dr.sy) < 4 && V3.ok) pick3d(e);
     if (!V3.ptrs.size) V3.drag = null;
   };
   c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
-  c.addEventListener('wheel', (e) => { e.preventDefault(); V3.dist = Math.max(3, Math.min(150, V3.dist * Math.exp(e.deltaY * 0.0012))); frame3d(); }, { passive: false });
+  c.addEventListener('lostpointercapture', (e) => { const mvb = e.target.closest && e.target.closest('[data-mv]'); if (mvb) { stopMv(mvb.dataset.mv); mvb.classList.remove('on'); } });
+  c.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (V3.modo === 'pessoa') mover3d(-e.deltaY * 0.004, 0);
+    else V3.dist = Math.max(3, Math.min(150, V3.dist * Math.exp(e.deltaY * 0.0012)));
+    frame3d();
+  }, { passive: false });
   c.addEventListener('contextmenu', (e) => e.preventDefault());
+  c.addEventListener('click', (e) => { const m = e.target.closest('[data-modo]'); if (m) setModo3d(m.dataset.modo); });
+  const TECLAS = { w: 'f', arrowup: 'f', s: 'b', arrowdown: 'b', a: 'l', arrowleft: 'l', d: 'r', arrowright: 'r', q: 'vl', e: 'vr' };
+  document.addEventListener('keydown', (e) => {
+    if (S.view !== 'vista-3d' || e.ctrlKey || e.metaKey || e.altKey) return;
+    const tag = (e.target.tagName || '').toLowerCase(); if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
+    V3.rapido = e.shiftKey;
+    const k = TECLAS[e.key.toLowerCase()]; if (!k) return;
+    e.preventDefault(); startMv(k);
+  });
+  document.addEventListener('keyup', (e) => { V3.rapido = e.shiftKey; const k = TECLAS[(e.key || '').toLowerCase()]; if (k) stopMv(k); });
+  window.addEventListener('blur', () => stopMv());
+  $('#insp3').addEventListener('change', (e) => {
+    if (e.target.id === 'f3-amb') setModo3d('pessoa', e.target.value);
+    if (e.target.id === 'f3-col') { V3.colisao = e.target.checked; }
+  });
   $('#insp3').addEventListener('click', (e) => {
+    const md = e.target.closest('[data-modo]'); if (md) { setModo3d(md.dataset.modo); return; }
     const p = e.target.closest('[data-p3]'); if (p) { V3.paredes = p.dataset.p3; build3d(); frame3d(); render3dInsp(); return; }
     const t = e.target.closest('[data-t3]'); if (t) { if (t.dataset.t3 === 'eletr') V3.eletr = !V3.eletr; else S.layers.cores = !S.layers.cores; build3d(); frame3d(); render3dInsp(); return; }
     const cm = e.target.closest('[data-cam]'); if (cm) { enquadrar3d(); const v = cm.dataset.cam; if (v === 'topo') { V3.ph = 0.06; V3.th = -Math.PI / 2; } else if (v === 'frente') { V3.ph = 1.32; V3.th = Math.PI / 2; } else { V3.ph = 0.92; V3.th = -2.2; } frame3d(); return; }
