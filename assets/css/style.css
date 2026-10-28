@@ -174,6 +174,12 @@ main { min-height: 0; position: relative; display: grid; grid-template-rows: min
 .kpi { display: flex; flex-direction: column; gap: 2px; }
 .kpi b { font: 600 22px var(--f-display); letter-spacing: .01em; font-variant-numeric: tabular-nums; }
 .kpi span { font-size: 12px; color: var(--ink-2); }
+.orc-in { width: 92px; text-align: right; font: inherit; font-variant-numeric: tabular-nums; padding: 5px 6px; }
+.orc-f { font-size: 11.5px; color: var(--ink-2); margin-top: 3px; line-height: 1.3; }
+.orc-f a { color: inherit; }
+table.orc td { vertical-align: top; }
+.orc-sub { display: none; font-size: 12px; color: var(--ink-2); margin-top: 4px; white-space: nowrap; }
+@media (max-width: 600px) { table.orc .orc-tot { display: none; } .orc-sub { display: block; } .orc-in { width: 78px; } }
 .tw { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--sheet); }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th { font-family: var(--f-display); font-weight: 600; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); background: var(--sheet-2); text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
