@@ -1510,7 +1510,7 @@ function render3dView() {
 }
 function renderModoChip() {
   const m = $('#c3 .modo3'); if (!m) return;
-  m.innerHTML = `<button data-modo="orbita" aria-pressed="${V3.modo !== 'pessoa'}">3ª pessoa</button><button data-modo="pessoa" aria-pressed="${V3.modo === 'pessoa'}">1ª pessoa</button>`;
+  m.innerHTML = `<button data-modo="orbita" aria-pressed="${V3.modo !== 'pessoa'}">3ª pessoa</button><button data-modo="pessoa" aria-pressed="${V3.modo === 'pessoa'}">1ª pessoa</button>${V3.modo !== 'pessoa' ? '<button data-centro="1" title="Voltar a casa inteira para o centro da tela">⌖ Centralizar</button>' : ''}`;
 }
 function render3dInsp() {
   renderModoChip();
@@ -1530,7 +1530,7 @@ function render3dInsp() {
         <label for="f3-col">Paredes bloqueiam</label><input id="f3-col" type="checkbox"${V3.colisao ? ' checked' : ''}></div>
         <p class="note" style="margin-top:6px">Olhos a 1,60 m do piso. Arraste para olhar em volta. Ande com W A S D ou as setas (Shift corre), a roda do mouse ou os botões na tela. As portas deixam passar.</p></div>`
     : `<div><h3>Paredes</h3><div class="seg">${[['cheia', 'Inteiras'], ['meia', 'Cortadas a 1,20 m'], ['oculta', 'Ocultas']].map(([k, n]) => `<button data-p3="${k}" aria-pressed="${V3.paredes === k}">${n}</button>`).join('')}</div></div>
-      <div><h3>Câmera</h3><div class="seg"><button data-cam="iso">Isométrica</button><button data-cam="topo">Topo</button><button data-cam="frente">Frente</button></div><p class="note" style="margin-top:6px">Arraste para girar. Deslize pelo ambiente com W A S D ou as setas, Shift + arrastar, botão direito, dois dedos ou os botões na tela. Roda ou pinça aproxima.</p></div>`;
+      <div><h3>Câmera</h3><div class="seg"><button data-cam="iso">Isométrica</button><button data-cam="topo">Topo</button><button data-cam="frente">Frente</button><button data-centro3="1">Centralizar</button></div><p class="note" style="margin-top:6px">Arraste para girar. Deslize pelo ambiente com W A S D ou as setas, Shift + arrastar, botão direito, dois dedos ou os botões na tela. Roda ou pinça aproxima.</p></div>`;
   el.innerHTML = `<div><h2>Vista 3D</h2><div class="ifc">gerada do mesmo modelo da planta</div></div>
     <div><h3>Modo</h3><div class="seg"><button data-modo="orbita" aria-pressed="${!pessoa}">3ª pessoa (órbita)</button><button data-modo="pessoa" aria-pressed="${pessoa}">1ª pessoa (caminhar)</button></div></div>
     ${modoUI}
@@ -1593,7 +1593,7 @@ function bind3d() {
     frame3d();
   }, { passive: false });
   c.addEventListener('contextmenu', (e) => e.preventDefault());
-  c.addEventListener('click', (e) => { const m = e.target.closest('[data-modo]'); if (m) setModo3d(m.dataset.modo); });
+  c.addEventListener('click', (e) => { const m = e.target.closest('[data-modo]'); if (m) setModo3d(m.dataset.modo); if (e.target.closest('[data-centro]')) { enquadrar3d(); frame3d(); } });
   const TECLAS = { w: 'f', arrowup: 'f', s: 'b', arrowdown: 'b', a: 'l', arrowleft: 'l', d: 'r', arrowright: 'r', q: 'vl', e: 'vr' };
   document.addEventListener('keydown', (e) => {
     if (S.view !== 'vista-3d' || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -1612,6 +1612,7 @@ function bind3d() {
     const md = e.target.closest('[data-modo]'); if (md) { setModo3d(md.dataset.modo); return; }
     const p = e.target.closest('[data-p3]'); if (p) { V3.paredes = p.dataset.p3; build3d(); frame3d(); render3dInsp(); return; }
     const t = e.target.closest('[data-t3]'); if (t) { if (t.dataset.t3 === 'eletr') V3.eletr = !V3.eletr; else S.layers.cores = !S.layers.cores; build3d(); frame3d(); render3dInsp(); return; }
+    if (e.target.closest('[data-centro3]')) { enquadrar3d(); frame3d(); return; }
     const cm = e.target.closest('[data-cam]'); if (cm) { enquadrar3d(); const v = cm.dataset.cam; if (v === 'topo') { V3.ph = 0.06; V3.th = -Math.PI / 2; } else if (v === 'frente') { V3.ph = 1.32; V3.th = Math.PI / 2; } else { V3.ph = 0.92; V3.th = -2.2; } frame3d(); return; }
     const h = e.target.closest('[data-act="hicirc3"]'); if (h) { S.hiCirc = S.hiCirc === h.dataset.id ? null : h.dataset.id; build3d(); frame3d(); render3dInsp(); }
   });
