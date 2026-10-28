@@ -790,7 +790,7 @@ function onDown(e) {
   const w = toW(e);
   if (e.button === 1 || e.button === 2 || spaceDown) { S.drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, px: S.px, py: S.py }; return; }
   const mk = e.target.closest('[data-ir]');
-  if (mk && S.tool === 'sel') { const [t, id] = mk.dataset.ir.split(':'); S.sel = { t, id }; renderPlan(); renderInsp(); return; }
+  if (mk && S.tool === 'sel') { const [t, id] = mk.dataset.ir.split(':'); S.sel = { t, id }; S.inspOpen = true; renderPlan(); renderInsp(); return; }
   const hnd = e.target.closest('[data-h]');
   const tgt = e.target.closest('[data-sel]');
   let [tt, tid] = tgt ? tgt.dataset.sel.split(':') : [null, null];
@@ -807,7 +807,7 @@ function onDown(e) {
       S.drag = { mode: 'move', id: tid, prev: snapshot(), off: { x: w.x - d.x, y: w.y - d.y }, sx: e.clientX, sy: e.clientY, moved: false };
       renderPlan(); renderInsp(); return;
     }
-    if (tt === 'edge') { S.sel = { t: 'edge', id: tid }; S.drag = null; renderPlan(); renderInsp(); return; }
+    if (tt === 'edge') { S.sel = { t: 'edge', id: tid }; S.inspOpen = true; S.drag = null; renderPlan(); renderInsp(); return; }
     if (tt === 'amb') {
       const a = ambById(tid);
       S.sel = { t: 'amb', id: tid };
@@ -922,6 +922,10 @@ function onUp(e) {
   if (dr.mode === 'pinch') { if (ptrs.size === 0) S.drag = null; return; }
   S.drag = null;
   if ((dr.mode === 'move' || dr.mode === 'moveRoom' || dr.mode === 'resize') && dr.moved) { pushUndo(dr.prev); changed(); return; }
+  // toque simples (sem arrastar) num componente ou ambiente: abre as propriedades
+  if ((dr.mode === 'move' || dr.mode === 'moveRoom') && !dr.moved && S.sel) { S.inspOpen = true; renderPlan(); renderInsp(); return; }
+  // toque simples no vazio: fecha o painel (celular)
+  if (dr.mode === 'pan' && !S.sel && Math.hypot(e.clientX - dr.sx, e.clientY - dr.sy) < 6 && innerWidth <= 860) { S.inspOpen = false; renderInsp(); }
   if (dr.mode === 'room' && dr.b) {
     const x = Math.min(dr.a.x, dr.b.x), y = Math.min(dr.a.y, dr.b.y), w = Math.abs(dr.b.x - dr.a.x), h = Math.abs(dr.b.y - dr.a.y);
     if (w < 0.5 || h < 0.5) { renderPlan(); toast('Arraste um retângulo de pelo menos 0,50 × 0,50 m.'); return; }
