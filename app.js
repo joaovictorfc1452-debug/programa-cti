@@ -128,6 +128,7 @@ function validarSel() {
   if (s.t === 'amb' && !S.P.amb.some((a) => a.id === s.id)) S.sel = null;
   else if (s.t === 'dev' && !S.P.dev.some((d) => d.id === s.id)) S.sel = null;
   else if (s.t === 'edge' && !(S.R && S.R.edges.some((e) => e.id === s.id))) S.sel = null;
+  else if (s.t === 'pw' && !(S.P.paredes || []).some((w) => w.id === s.id)) S.sel = null;
   if (S.hiCirc && !(S.R && S.R.circ.some((c) => c.id === S.hiCirc))) S.hiCirc = null;
 }
 const devById = (id) => S.P.dev.find((d) => d.id === id);
@@ -398,6 +399,7 @@ const IC = {
   sel: '<path d="M5 3l11 6.2-4.7 1.3 2.6 5-2 1-2.6-5L5 15z" fill="currentColor"/>',
   amb: '<rect x="3" y="4" width="14" height="12" fill="none" stroke="currentColor" stroke-width="2"/><rect x="1.5" y="2.5" width="3" height="3" fill="currentColor"/><rect x="15.5" y="14.5" width="3" height="3" fill="currentColor"/>',
   porta: '<path d="M3 17h14M5 17V5M5 5a12 12 0 0 1 12 12" fill="none" stroke="currentColor" stroke-width="1.8"/>',
+  parede: '<path d="M3 15L17 15" stroke="currentColor" stroke-width="4"/><circle cx="3" cy="15" r="1.8" fill="currentColor"/><circle cx="17" cy="15" r="1.8" fill="currentColor"/><path d="M5 9l3-4 3 4 3-4" fill="none" stroke="currentColor" stroke-width="1.2"/>',
   luz: '<circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="1.8"/><text x="10" y="13" font-size="8" text-anchor="middle" fill="currentColor" font-family="sans-serif">a</text>',
   arandela: '<path d="M3 5h14M5 5a5 5 0 0 0 10 0" fill="none" stroke="currentColor" stroke-width="1.8"/>',
   int1: '<path d="M3 4h14M10 4v6" stroke="currentColor" stroke-width="1.8"/><circle cx="10" cy="12" r="3" fill="currentColor"/>',
@@ -410,7 +412,7 @@ const IC = {
   eletr: '<path d="M3 16L9 9l4 3 4-8" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="3" cy="16" r="2" fill="currentColor"/><circle cx="17" cy="4" r="2" fill="currentColor"/>'
 };
 const TOOLS = [
-  { id: 'sel', k: 'V', n: 'Selecionar e mover (V)' }, { id: 'amb', k: 'R', n: 'Ambiente: arraste um retângulo (R)' }, { id: 'porta', k: 'D', n: 'Porta: clique sobre a parede (D)' }, '-',
+  { id: 'sel', k: 'V', n: 'Selecionar e mover (V)' }, { id: 'amb', k: 'R', n: 'Ambiente: arraste um retângulo (R)' }, { id: 'parede', k: 'W', n: 'Parede: arraste de uma ponta à outra (W)' }, { id: 'porta', k: 'D', n: 'Porta: clique sobre a parede (D)' }, '-',
   { id: 'luz', k: 'L', n: 'Ponto de luz no teto (L)' }, { id: 'arandela', k: 'A', n: 'Arandela (A)' },
   { id: 'int1', k: 'S', n: 'Interruptor simples (S)' }, { id: 'int2', k: 'P', n: 'Interruptor paralelo (P)' }, { id: 'int3', k: 'I', n: 'Interruptor intermediário (I)' },
   { id: 'tug', k: 'T', n: 'Tomada de uso geral (T)' }, { id: 'tue', k: 'E', n: 'Ponto de uso específico (E)' }, '-',
@@ -419,6 +421,7 @@ const TOOLS = [
 const HINTS = {
   sel: 'Arraste para mover · alças redimensionam · Del exclui · arraste o fundo para navegar',
   amb: 'Arraste na prancha para desenhar o ambiente (encaixa em 5 cm e nas paredes vizinhas)',
+  parede: 'Arraste de uma ponta à outra da parede (fica reta na horizontal ou na vertical e encaixa nas paredes existentes)',
   porta: 'Clique sobre a parede onde fica a porta',
   luz: 'Clique dentro do ambiente — a letra de comando liga o ponto ao interruptor',
   arandela: 'Clique junto à parede', int1: 'Clique junto à parede, perto da porta', int2: 'Clique junto à parede', int3: 'Clique junto à parede',
@@ -492,11 +495,44 @@ function snapEixo(v, eixo, excl) {
     if (a.id === excl) continue;
     for (const c of eixo === 'x' ? [a.x, a.x + a.w] : [a.y, a.y + a.h]) { const d = Math.abs(c - v); if (d < bd) { bd = d; best = c; } }
   }
+  for (const pw of S.P.paredes || []) {
+    if (pw.id === excl) continue;
+    for (const c of eixo === 'x' ? [pw.x1, pw.x2] : [pw.y1, pw.y2]) { const d = Math.abs(c - v); if (d < bd) { bd = d; best = c; } }
+  }
   return best != null ? best : +snapV(v).toFixed(2);
 }
 
 /* ---------- posicionamento ---------- */
+const pwById = (id) => (S.P.paredes || []).find((x) => x.id === id);
+// ponto mais próximo numa parede avulsa: { x, y, d, nrm, ld, w }
+function paredeProxima(w) {
+  let best = null;
+  for (const pw of S.P.paredes || []) {
+    const h = E.paredeOrient(pw) === 'h';
+    const a = h ? Math.min(pw.x1, pw.x2) : Math.min(pw.y1, pw.y2), b = h ? Math.max(pw.x1, pw.x2) : Math.max(pw.y1, pw.y2);
+    const m = Math.min(Math.max(h ? w.x : w.y, a), b), c = h ? pw.y1 : pw.x1;
+    const px = h ? m : c, py = h ? c : m;
+    const d = Math.hypot(w.x - px, w.y - py);
+    if (!best || d < best.d) {
+      const lado = (h ? w.y - c : w.x - c) >= 0 ? 1 : -1;
+      best = { x: px, y: py, d, ld: lado, nrm: h ? [0, lado] : [lado, 0], w: pw, h, a, b };
+    }
+  }
+  return best;
+}
 function posicionar(kind, w) {
+  const r = posicionarBorda(kind, w);
+  if (kind === 'med' || E.KINDS[kind].mount === 'teto') return r;
+  const pw = paredeProxima(w);
+  if (!pw || pw.d > 0.45) return r;
+  if (r.nrm && Math.hypot(w.x - r.x, w.y - r.y) <= pw.d) return r;
+  // encaixa na parede avulsa (divisória), na face do lado do cursor
+  const m = Math.min(Math.max(+snapV(pw.h ? w.x : w.y).toFixed(2), pw.a), pw.b);
+  const x = pw.h ? m : pw.x, y = pw.h ? pw.y : m;
+  const a = E.ambienteEm(S.P, x + pw.nrm[0] * 0.1, y + pw.nrm[1] * 0.1, 0);
+  return { x: +x.toFixed(3), y: +y.toFixed(3), amb: a ? a.id : null, nrm: pw.nrm, ld: pw.ld, guia: null };
+}
+function posicionarBorda(kind, w) {
   const K = E.KINDS[kind];
   const sx = +snapV(w.x).toFixed(2), sy = +snapV(w.y).toFixed(2);
   const tol = 12 / S.z;
@@ -548,6 +584,7 @@ function novoDev(kind, pos) {
   if (kind === 'tug') d.h = S.opt.tugH;
   if (kind === 'tue') d.tipo = S.opt.tue;
   if (kind === 'porta') d.w = 0.8;
+  if (pos.ld && kind !== 'porta') d.ld = pos.ld;
   return d;
 }
 
@@ -619,7 +656,7 @@ function portaSVG(d) {
   const w = d.w || 0.8;
   let n = null;
   for (const r of S.P.amb) { const nn = E.normalNaBorda(r, d); if (nn) { n = nn; break; } }
-  if (!n) n = [0, 1];
+  if (!n) n = E.normalParedeLivre(S.P, d) || [0, 1];
   const f = d.lado === 'd' ? -1 : 1, inv = d.inv ? -1 : 1;
   let H, Eo, T, gap;
   if (n[0] === 0) {
@@ -719,6 +756,7 @@ function planContent(o) {
   }
   // paredes
   for (const a of P.amb) s += `<rect x="${a.x}" y="${a.y}" width="${a.w}" height="${a.h}" class="wall" stroke-width="0.12" pointer-events="none"/>`;
+  for (const pw of P.paredes || []) s += `<line x1="${pw.x1}" y1="${pw.y1}" x2="${pw.x2}" y2="${pw.y2}" class="wall" stroke-width="0.12" stroke-linecap="square"${o.static ? ' pointer-events="none"' : ` data-sel="pw:${pw.id}" style="cursor:move"`}/>`;
   for (const d of P.dev.filter((x) => x.k === 'porta')) s += `<g data-sel="dev:${d.id}">${portaSVG(d)}</g>`;
   // trechos pela parede (por cima das paredes) e pontos onde atravessam (furo / rasgo)
   s += parG;
@@ -778,6 +816,18 @@ function renderPlan() {
       }
     }
   }
+  // seleção de parede avulsa
+  if (S.sel && S.sel.t === 'pw') {
+    const pw = pwById(S.sel.id);
+    if (pw) {
+      const h = E.paredeOrient(pw) === 'h', L = h ? Math.abs(pw.x2 - pw.x1) : Math.abs(pw.y2 - pw.y1);
+      s += `<line x1="${pw.x1}" y1="${pw.y1}" x2="${pw.x2}" y2="${pw.y2}" class="selbox" stroke-width="3" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
+      const mx = (pw.x1 + pw.x2) / 2, my = (pw.y1 + pw.y2) / 2, off = 0.35;
+      s += `<text x="${h ? mx : mx - off}" y="${h ? my - off : my}" font-size="${Math.max(0.14, 12 / z)}" text-anchor="middle"${h ? '' : ` transform="rotate(-90 ${mx - off} ${my})"`} class="dimt">${nf(L, 2)} m</text>`;
+      const hs = 11 / z;
+      for (const [hh, hx, hy] of [['p1', pw.x1, pw.y1], ['p2', pw.x2, pw.y2]]) s += `<rect x="${hx - hs / 2}" y="${hy - hs / 2}" width="${hs}" height="${hs}" class="handle" stroke-width="1.5" vector-effect="non-scaling-stroke" data-h="${hh}" style="cursor:${h ? 'ew' : 'ns'}-resize"/>`;
+    }
+  }
   // alertas
   if (S.layers.alertas) {
     const ms = 13 / z;
@@ -809,7 +859,12 @@ function renderPlan() {
     s += `<rect x="${x}" y="${y}" width="${w}" height="${h}" class="prev" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
     s += `<text x="${x + w / 2}" y="${y + h / 2}" font-size="${14 / z}" text-anchor="middle" class="dimt">${nf(w, 2)} × ${nf(h, 2)} m · ${nf(w * h, 2)} m²</text>`;
   }
-  if (S.ghost && S.tool !== 'sel' && S.tool !== 'amb' && S.tool !== 'eletr') {
+  if (dr && dr.mode === 'wall' && dr.b) {
+    const L = Math.hypot(dr.b.x - dr.a.x, dr.b.y - dr.a.y);
+    s += `<line x1="${dr.a.x}" y1="${dr.a.y}" x2="${dr.b.x}" y2="${dr.b.y}" class="prev" stroke-width="0.12" stroke-linecap="square"/>`;
+    s += `<text x="${(dr.a.x + dr.b.x) / 2}" y="${(dr.a.y + dr.b.y) / 2 - 14 / z}" font-size="${14 / z}" text-anchor="middle" class="dimt">${nf(L, 2)} m</text>`;
+  }
+  if (S.ghost && S.tool !== 'sel' && S.tool !== 'amb' && S.tool !== 'eletr' && S.tool !== 'parede') {
     const g = S.ghost;
     const d = novoDev(S.tool, g);
     s += `<g class="ghost" pointer-events="none">${S.tool === 'porta' ? portaSVG(d) : symDev(d, { nrm: g.nrm, h: d.h != null ? d.h : (E.KINDS[S.tool].h || 1.1), va: 0 }, { rotulos: false, nrm: g.nrm })}</g>`;
@@ -911,6 +966,17 @@ function onDown(e) {
   let [tt, tid] = tgt ? tgt.dataset.sel.split(':') : [null, null];
   const tool = S.tool;
   if (tool === 'sel') {
+    if (hnd && S.sel && S.sel.t === 'pw') {
+      const pw = pwById(S.sel.id);
+      if (pw) { S.drag = { mode: 'wallEnd', h: hnd.dataset.h, id: pw.id, touch: toque, t0: performance.now(), prev: snapshot(), moved: false }; return; }
+    }
+    if (tt === 'pw') {
+      const pw = pwById(tid);
+      S.sel = { t: 'pw', id: tid };
+      const hostW = S.P.dev.filter((d) => E.paredeNoPonto(S.P, d) === pw).map((d) => ({ id: d.id, x: d.x, y: d.y }));
+      S.drag = { mode: 'moveWall', id: tid, touch: toque, t0: performance.now(), prev: snapshot(), start: w, orig: { x1: pw.x1, y1: pw.y1, x2: pw.x2, y2: pw.y2 }, hosted: hostW, sx: e.clientX, sy: e.clientY, moved: false };
+      renderPlan(); renderInsp(); return;
+    }
     if (hnd && S.sel && S.sel.t === 'amb') {
       const a = ambById(S.sel.id);
       S.drag = { mode: 'resize', h: hnd.dataset.h, touch: toque, t0: performance.now(), id: a.id, prev: snapshot(), orig: { x: a.x, y: a.y, w: a.w, h: a.h }, hosted: hosted(a), moved: false };
@@ -935,6 +1001,7 @@ function onDown(e) {
   }
   if (e.button !== 0) return;
   if (tool === 'amb') { S.drag = { mode: 'room', a: { x: snapEixo(w.x, 'x'), y: snapEixo(w.y, 'y') } }; return; }
+  if (tool === 'parede') { S.drag = { mode: 'wall', a: { x: snapEixo(w.x, 'x'), y: snapEixo(w.y, 'y') } }; return; }
   if (tool === 'eletr') {
     if (tt === 'dev') {
       const d = devById(tid);
@@ -966,7 +1033,7 @@ function onMove(e) {
   const cp = $('#cursorPos'); if (cp) cp.textContent = `x ${nf(w.x, 2)} · y ${nf(w.y, 2)} m`;
   const dr = S.drag;
   if (!dr) {
-    if (S.tool !== 'sel' && S.tool !== 'amb' && S.tool !== 'eletr') { S.ghost = posicionar(S.tool, w); S.guia = S.ghost.guia || null; renderPlanSoon(); }
+    if (S.tool !== 'sel' && S.tool !== 'amb' && S.tool !== 'eletr' && S.tool !== 'parede') { S.ghost = posicionar(S.tool, w); S.guia = S.ghost.guia || null; renderPlanSoon(); }
     else if (S.tool === 'eletr' && S.eletrA) renderPlanSoon();
     return;
   }
@@ -983,13 +1050,14 @@ function onMove(e) {
   }
   if (dr.mode === 'pan') { S.px = dr.px + e.clientX - dr.sx; S.py = dr.py + e.clientY - dr.sy; renderPlanSoon(); return; }
   // no toque, espera um instante: se chegar o segundo dedo é zoom, não arrasto
-  if (dr.touch && !dr.moved && (dr.mode === 'move' || dr.mode === 'moveRoom' || dr.mode === 'resize') && (performance.now() - dr.t0 < 140 || ptrs.size > 1)) return;
+  if (dr.touch && !dr.moved && (dr.mode === 'move' || dr.mode === 'moveRoom' || dr.mode === 'resize' || dr.mode === 'moveWall' || dr.mode === 'wallEnd') && (performance.now() - dr.t0 < 140 || ptrs.size > 1)) return;
   if (dr.mode === 'move') {
     if (!dr.moved && Math.hypot(e.clientX - dr.sx, e.clientY - dr.sy) < (dr.touch ? 8 : 4)) return;
     dr.moved = true;
     const d = devById(dr.id); if (!d) return;
     const pos = posicionar(d.k, { x: w.x - dr.off.x, y: w.y - dr.off.y });
     d.x = pos.x; d.y = pos.y; S.guia = pos.guia || null;
+    if (pos.ld && d.k !== 'porta') d.ld = pos.ld; else delete d.ld;
     if (d.k !== 'porta' && d.k !== 'med') { if (pos.amb) d.amb = pos.amb; else delete d.amb; }
     recompute(); renderPlanSoon(); return;
   }
@@ -1030,6 +1098,30 @@ function onMove(e) {
     recompute(); renderPlanSoon(); return;
   }
   if (dr.mode === 'room') { dr.b = { x: snapEixo(w.x, 'x'), y: snapEixo(w.y, 'y') }; renderPlanSoon(); }
+  if (dr.mode === 'wall') {
+    const bx = snapEixo(w.x, 'x'), by = snapEixo(w.y, 'y');
+    dr.b = Math.abs(bx - dr.a.x) >= Math.abs(by - dr.a.y) ? { x: bx, y: dr.a.y } : { x: dr.a.x, y: by }; // sempre reta
+    renderPlanSoon();
+  }
+  if (dr.mode === 'moveWall') {
+    if (!dr.moved && Math.hypot(e.clientX - dr.sx, e.clientY - dr.sy) < (dr.touch ? 8 : 4)) return;
+    dr.moved = true;
+    const pw = pwById(dr.id), o = dr.orig; if (!pw) return;
+    const h = E.paredeOrient(pw) === 'h';
+    let dx = w.x - dr.start.x, dy = w.y - dr.start.y;
+    if (h) { dy = snapEixo(o.y1 + dy, 'y', pw.id) - o.y1; dx = +snapV(dx).toFixed(3); } else { dx = snapEixo(o.x1 + dx, 'x', pw.id) - o.x1; dy = +snapV(dy).toFixed(3); }
+    pw.x1 = +(o.x1 + dx).toFixed(3); pw.x2 = +(o.x2 + dx).toFixed(3); pw.y1 = +(o.y1 + dy).toFixed(3); pw.y2 = +(o.y2 + dy).toFixed(3);
+    for (const hh of dr.hosted) { const d = devById(hh.id); if (d) { d.x = +(hh.x + dx).toFixed(3); d.y = +(hh.y + dy).toFixed(3); } }
+    recompute(); renderPlanSoon(); return;
+  }
+  if (dr.mode === 'wallEnd') {
+    dr.moved = true;
+    const pw = pwById(dr.id); if (!pw) return;
+    const h = E.paredeOrient(pw) === 'h', k = dr.h === 'p1' ? '1' : '2', ko = k === '1' ? '2' : '1';
+    if (h) { let x = snapEixo(w.x, 'x', pw.id); if (Math.abs(x - pw['x' + ko]) < 0.3) x = pw['x' + ko] + (x >= pw['x' + ko] ? 0.3 : -0.3); pw['x' + k] = +x.toFixed(3); }
+    else { let y = snapEixo(w.y, 'y', pw.id); if (Math.abs(y - pw['y' + ko]) < 0.3) y = pw['y' + ko] + (y >= pw['y' + ko] ? 0.3 : -0.3); pw['y' + k] = +y.toFixed(3); }
+    recompute(); renderPlanSoon(); return;
+  }
 }
 function onUp(e) {
   ptrs.delete(e.pointerId);
@@ -1039,11 +1131,20 @@ function onUp(e) {
   if (!dr) return;
   if (dr.mode === 'pinch') { if (ptrs.size === 0) S.drag = null; return; }
   S.drag = null;
-  if ((dr.mode === 'move' || dr.mode === 'moveRoom' || dr.mode === 'resize') && dr.moved) { pushUndo(dr.prev); changed(); return; }
+  if ((dr.mode === 'move' || dr.mode === 'moveRoom' || dr.mode === 'resize' || dr.mode === 'moveWall' || dr.mode === 'wallEnd') && dr.moved) { pushUndo(dr.prev); changed(); return; }
   // toque simples (sem arrastar) num componente ou ambiente: abre as propriedades
-  if ((dr.mode === 'move' || dr.mode === 'moveRoom') && !dr.moved && S.sel) { S.inspOpen = true; renderPlan(); renderInsp(); return; }
+  if ((dr.mode === 'move' || dr.mode === 'moveRoom' || dr.mode === 'moveWall') && !dr.moved && S.sel) { S.inspOpen = true; renderPlan(); renderInsp(); return; }
   // toque simples no vazio: fecha o painel (celular)
   if (dr.mode === 'pan' && !S.sel && Math.hypot(e.clientX - dr.sx, e.clientY - dr.sy) < 6 && innerWidth <= 860) { S.inspOpen = false; renderInsp(); }
+  if (dr.mode === 'wall') {
+    const L = dr.b ? Math.hypot(dr.b.x - dr.a.x, dr.b.y - dr.a.y) : 0;
+    if (L < 0.3) { renderPlan(); toast('Arraste de uma ponta à outra: a parede precisa ter pelo menos 0,30 m.'); return; }
+    const pw = { id: E.uid('w'), x1: +dr.a.x.toFixed(3), y1: +dr.a.y.toFixed(3), x2: +dr.b.x.toFixed(3), y2: +dr.b.y.toFixed(3) };
+    mutate((P) => { P.paredes = P.paredes || []; P.paredes.push(pw); });
+    S.sel = { t: 'pw', id: pw.id }; S.inspOpen = true;
+    renderPlan(); renderInsp(); toast(`Parede de ${nf(L, 2)} m criada.`);
+    return;
+  }
   if (dr.mode === 'room' && dr.b) {
     const x = Math.min(dr.a.x, dr.b.x), y = Math.min(dr.a.y, dr.b.y), w = Math.abs(dr.b.x - dr.a.x), h = Math.abs(dr.b.y - dr.a.y);
     if (w < 0.5 || h < 0.5) { renderPlan(); toast('Arraste um retângulo de pelo menos 0,50 × 0,50 m.'); return; }
@@ -1066,6 +1167,7 @@ function teclaPlanta(e) {
     const st = e.shiftKey ? 0.5 : 0.05;
     const dx = e.key === 'ArrowLeft' ? -st : e.key === 'ArrowRight' ? st : 0, dy = e.key === 'ArrowUp' ? -st : e.key === 'ArrowDown' ? st : 0;
     if (S.sel.t === 'dev') mutate((P) => { const d = P.dev.find((x) => x.id === S.sel.id); if (d) { d.x = +(d.x + dx).toFixed(3); d.y = +(d.y + dy).toFixed(3); } });
+    if (S.sel.t === 'pw') { const pw0 = pwById(S.sel.id); const hs = S.P.dev.filter((d) => E.paredeNoPonto(S.P, d) === pw0).map((d) => d.id); mutate((P) => { const pw = P.paredes.find((x) => x.id === S.sel.id); if (!pw) return; pw.x1 = +(pw.x1 + dx).toFixed(3); pw.x2 = +(pw.x2 + dx).toFixed(3); pw.y1 = +(pw.y1 + dy).toFixed(3); pw.y2 = +(pw.y2 + dy).toFixed(3); for (const id of hs) { const d = P.dev.find((x) => x.id === id); if (d) { d.x = +(d.x + dx).toFixed(3); d.y = +(d.y + dy).toFixed(3); } } }); }
     if (S.sel.t === 'amb') { const a = ambById(S.sel.id); const hs = hosted(a); mutate((P) => { const r = P.amb.find((x) => x.id === a.id); r.x = +(r.x + dx).toFixed(3); r.y = +(r.y + dy).toFixed(3); for (const h of hs) { const d = P.dev.find((x) => x.id === h.id); d.x = +(d.x + dx).toFixed(3); d.y = +(d.y + dy).toFixed(3); } }); }
     return;
   }
@@ -1081,6 +1183,7 @@ function excluirSel() {
     mutate((P) => { P.amb = P.amb.filter((x) => x.id !== s.id); P.dev = P.dev.filter((d) => !ids.has(d.id)); P.eletr = P.eletr.filter((x) => !ids.has(x.a) && !ids.has(x.b)); });
     toast('Ambiente e seus pontos excluídos (Ctrl+Z desfaz).');
   }
+  if (s.t === 'pw') { mutate((P) => { P.paredes = (P.paredes || []).filter((x) => x.id !== s.id); }); toast('Parede excluída (↶ Voltar desfaz).'); }
   if (s.t === 'edge') {
     const e = S.R.edges.find((x) => x.id === s.id);
     if (e && e.manual) mutate((P) => { P.eletr = P.eletr.filter((x) => x.id !== s.id); });
@@ -1102,10 +1205,24 @@ function renderInsp() {
   if (s && s.t === 'amb') h += inspAmb(ambById(s.id));
   else if (s && s.t === 'dev') h += inspDev(devById(s.id));
   else if (s && s.t === 'edge') h += inspEdge(S.R.edges.find((e) => e.id === s.id));
+  else if (s && s.t === 'pw') h += inspParede(pwById(s.id));
   else h += inspProjeto();
   const st = el.scrollTop;
   el.innerHTML = h;
   el.scrollTop = st;
+}
+function inspParede(pw) {
+  if (!pw) return '';
+  const h = E.paredeOrient(pw) === 'h', L = h ? Math.abs(pw.x2 - pw.x1) : Math.abs(pw.y2 - pw.y1);
+  const nPts = S.P.dev.filter((d) => E.paredeNoPonto(S.P, d) === pw).length;
+  return `<div><h2>Parede</h2><div class="ifc">IfcWall · ${esc(pw.id)} · 12 cm</div></div>
+  <div><h3>Geometria</h3><div class="form">
+    ${lab('pw.o', 'Direção')}${fSel('pw.o', h ? 'h' : 'v', [['h', 'Horizontal'], ['v', 'Vertical']])}
+    ${lab('pw.x1', 'Início X (m)')}${fIn('pw.x1', pw.x1, 'number', 'step="0.05"')}
+    ${lab('pw.y1', 'Início Y (m)')}${fIn('pw.y1', pw.y1, 'number', 'step="0.05"')}
+    ${lab('pw.L', 'Comprimento (m)')}${fIn('pw.L', +L.toFixed(3), 'number', 'step="0.05" min="0.3"')}
+  </div><p class="note" style="margin-top:8px">Arraste a parede para mover (os pontos presos nela vão junto) e as alças das pontas para mudar o comprimento. ${nPts ? `${nPts} ${nPts > 1 ? 'pontos estão presos' : 'ponto está preso'} nesta parede.` : 'Tomadas, interruptores e portas encaixam nela.'}</p></div>
+  <div class="row"><button class="btn danger" data-act="excluir">Excluir parede</button></div>`;
 }
 function inspAmb(a) {
   if (!a) return '';
@@ -1254,6 +1371,12 @@ function onInspChange(e) {
       } else if (key === 'pd') { if (v) a.pd = v; else delete a.pd; }
       else if (key === 'nome') a.nome = v || 'Ambiente';
       else a[key] = v;
+    } else if (scope === 'pw') {
+      const pw = (P.paredes || []).find((x) => x.id === S.sel.id); if (!pw) return;
+      const h = E.paredeOrient(pw) === 'h', L = h ? Math.abs(pw.x2 - pw.x1) : Math.abs(pw.y2 - pw.y1);
+      if (key === 'o') { if ((v === 'h') !== h) { pw.x2 = +(pw.x1 + (v === 'h' ? L : 0)).toFixed(3); pw.y2 = +(pw.y1 + (v === 'h' ? 0 : L)).toFixed(3); } }
+      else if (key === 'L') { if (!(v >= 0.3)) return; if (h) pw.x2 = +(pw.x1 + Math.sign(pw.x2 - pw.x1 || 1) * v).toFixed(3); else pw.y2 = +(pw.y1 + Math.sign(pw.y2 - pw.y1 || 1) * v).toFixed(3); }
+      else if ((key === 'x1' || key === 'y1') && v != null) { const c = key[0], d0 = v - pw[key]; pw[c + '1'] = +v.toFixed(3); pw[c + '2'] = +(pw[c + '2'] + d0).toFixed(3); }
     } else if (scope === 'dev') {
       const d = P.dev.find((x) => x.id === S.sel.id); if (!d) return;
       if (key === 'tipo') { d.tipo = v; delete d.w; delete d.v; delete d.fp; delete d.h; }
@@ -1467,6 +1590,10 @@ function wallSegs(P) {
     push('h:' + a.y.toFixed(2), { a: a.x, b: a.x + a.w, pd }); push('h:' + (a.y + a.h).toFixed(2), { a: a.x, b: a.x + a.w, pd });
     push('v:' + a.x.toFixed(2), { a: a.y, b: a.y + a.h, pd }); push('v:' + (a.x + a.w).toFixed(2), { a: a.y, b: a.y + a.h, pd });
   }
+  for (const w of P.paredes || []) { // paredes avulsas (divisórias)
+    if (E.paredeOrient(w) === 'h') push('h:' + w.y1.toFixed(2), { a: Math.min(w.x1, w.x2), b: Math.max(w.x1, w.x2), pd: P.par.pd });
+    else push('v:' + w.x1.toFixed(2), { a: Math.min(w.y1, w.y2), b: Math.max(w.y1, w.y2), pd: P.par.pd });
+  }
   const portas = P.dev.filter((d) => d.k === 'porta');
   const out = [];
   for (const [k, arr] of lines) {
@@ -1533,7 +1660,7 @@ function build3d() {
   for (const d of P.dev.filter((x) => x.k === 'porta')) {
     let n = null;
     for (const r of P.amb) { n = E.normalNaBorda(r, d); if (n) break; }
-    if (!n) n = [0, 1];
+    if (!n) n = E.normalParedeLivre(P, d) || [0, 1];
     const w = d.w || 0.8, alto = PW === 'meia' ? 1.2 : 2.1;
     const horiz = n[0] === 0;
     V3.doorSegs.push(horiz ? { id: d.id, o: 'h', c: d.y, a: d.x - w / 2, b: d.x + w / 2 } : { id: d.id, o: 'v', c: d.x, a: d.y - w / 2, b: d.y + w / 2 });

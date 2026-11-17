@@ -193,7 +193,7 @@
     P.meta = Object.assign({}, base.meta, P.meta || {});
     P.par = Object.assign({}, base.par, P.par || {});
     P.spda = Object.assign({}, base.spda, P.spda || {});
-    P.amb = P.amb || []; P.dev = P.dev || []; P.eletr = P.eletr || []; P.nr10 = P.nr10 || {}; P.precos = P.precos || {}; P.orc = Object.assign({}, base.orc, P.orc || {});
+    P.amb = P.amb || []; P.dev = P.dev || []; P.eletr = P.eletr || []; P.paredes = P.paredes || []; P.nr10 = P.nr10 || {}; P.precos = P.precos || {}; P.orc = Object.assign({}, base.orc, P.orc || {});
     if (!P.id) P.id = base.id;
     return P;
   };
@@ -228,6 +228,21 @@
     if (Math.abs(d.x - a.x) < tol && d.y >= a.y - tol && d.y <= a.y + a.h + tol) return [1, 0];
     if (Math.abs(d.x - a.x - a.w) < tol && d.y >= a.y - tol && d.y <= a.y + a.h + tol) return [-1, 0];
     return null;
+  };
+  // paredes avulsas (divisórias), sempre retas na horizontal ou na vertical: { id, x1, y1, x2, y2 }
+  E.paredeOrient = (w) => (Math.abs(w.y1 - w.y2) < 1e-6 ? 'h' : 'v');
+  E.paredeNoPonto = function (P, d, tol) {
+    tol = tol || 0.03;
+    for (const w of P.paredes || []) {
+      if (E.paredeOrient(w) === 'h') { const a = Math.min(w.x1, w.x2), b = Math.max(w.x1, w.x2); if (Math.abs(d.y - w.y1) < tol && d.x >= a - tol && d.x <= b + tol) return w; }
+      else { const a = Math.min(w.y1, w.y2), b = Math.max(w.y1, w.y2); if (Math.abs(d.x - w.x1) < tol && d.y >= a - tol && d.y <= b + tol) return w; }
+    }
+    return null;
+  };
+  E.normalParedeLivre = function (P, d) {
+    const w = E.paredeNoPonto(P, d); if (!w) return null;
+    const l = d.ld === -1 ? -1 : 1;
+    return E.paredeOrient(w) === 'h' ? [0, l] : [l, 0];
   };
   // parâmetro s ao longo do perímetro (sentido horário a partir do canto superior esquerdo)
   function perimPonto(a, s) {
@@ -499,7 +514,7 @@
       else if (d.h != null && d.h !== '') h = +d.h;
       else if (d.k === 'tue') h = (E.TUE[d.tipo] || E.TUE.outro).h;
       else h = K.h != null ? K.h : 1.1;
-      R.dev[d.id] = { amb: a ? a.id : null, pd, h: Math.min(h, pd), drop: Math.max(0, pd - Math.min(h, pd)), nrm: E.normalNaBorda(a, d), va: 0, w: 0, fp: 1, circ: null };
+      R.dev[d.id] = { amb: a ? a.id : null, pd, h: Math.min(h, pd), drop: Math.max(0, pd - Math.min(h, pd)), nrm: E.normalNaBorda(a, d) || E.normalParedeLivre(P, d), va: 0, w: 0, fp: 1, circ: null };
       if (a) {
         const ra = R.amb[a.id];
         if (d.k === 'luz' || d.k === 'arandela') ra.nLuz++;
@@ -1314,6 +1329,10 @@
     for (const a of P.amb) {
       walls.push({ o: 'h', c: a.y, a: a.x, b: a.x + a.w }, { o: 'h', c: a.y + a.h, a: a.x, b: a.x + a.w });
       walls.push({ o: 'v', c: a.x, a: a.y, b: a.y + a.h }, { o: 'v', c: a.x + a.w, a: a.y, b: a.y + a.h });
+    }
+    for (const w of P.paredes || []) {
+      if (E.paredeOrient(w) === 'h') walls.push({ o: 'h', c: w.y1, a: Math.min(w.x1, w.x2), b: Math.max(w.x1, w.x2) });
+      else walls.push({ o: 'v', c: w.x1, a: Math.min(w.y1, w.y2), b: Math.max(w.y1, w.y2) });
     }
     const portas = P.dev.filter((d) => d.k === 'porta');
     const naPorta = (o, c, m) => portas.some((d) => { const w = d.w || 0.8; return o === 'h' ? Math.abs(d.y - c) < 0.08 && Math.abs(d.x - m) < w / 2 : Math.abs(d.x - c) < 0.08 && Math.abs(d.y - m) < w / 2; });
